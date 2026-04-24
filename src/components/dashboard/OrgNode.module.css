@@ -1,0 +1,64 @@
+.node {
+  padding: 12px 14px; min-width: 180px; max-width: 220px;
+  background: var(--white); border: 1.5px solid var(--slate);
+  border-radius: 4px; font-family: var(--font-body);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  transition: all 0.2s; position: relative;
+}
+.node:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.14); border-color: var(--teal); }
+
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 4px; }
+.name { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.2; color: var(--ink); flex: 1; }
+.actions { display: flex; gap: 3px; opacity: 0; transition: opacity 0.15s; }
+.node:hover .actions { opacity: 1; }
+
+.addBtn, .delBtn {
+  width: 20px; height: 20px; border-radius: 3px; border: none;
+  font-size: 14px; font-weight: 700; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.addBtn { background: var(--olive); color: var(--cream); }
+.addBtn:hover { background: var(--olive-deep); }
+.delBtn { background: var(--red); color: var(--cream); }
+.delBtn:hover { background: #991b1b; }
+
+.role { font-size: 10px; color: var(--slate-2); line-height: 1.35; margin-bottom: 6px; }
+
+.meta { display: flex; gap: 5px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; }
+.id { color: var(--slate-light); }
+.grade { color: var(--slate-light); }
+.spanBadge { background: var(--olive); color: var(--cream); padding: 1px 5px; border-radius: 2px; font-weight: 700; }
+.userBadge { background: #6366f1; color: var(--cream); padding: 1px 5px; border-radius: 2px; font-weight: 700; font-size: 8px; letter-spacing: 0.1em; }
+.orphanBadge { background: var(--accent); color: var(--cream); padding: 1px 5px; border-radius: 2px; font-weight: 700; font-size: 8px; letter-spacing: 0.1em; }
+.openBadge { display: inline-block; background: var(--accent); color: var(--cream); padding: 1px 6px; border-radius: 2px; font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em; margin-right: 4px; vertical-align: middle; }
+
+.handle { width: 8px !important; height: 8px !important; background: var(--slate-light) !important; border: 1px solid var(--white) !important; }
+
+/* Collapse button */
+.collapseBtn {
+  position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--cream); border: none;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 8px; cursor: pointer;
+  z-index: 5; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: background 0.15s;
+}
+.collapseBtn:hover { background: var(--teal); }
+
+/* Depth coloring */
+.isRoot { background: var(--teal); border-color: var(--teal-deep); }
+.isRoot .name, .isRoot .role { color: var(--cream); }
+.isRoot .id, .isRoot .grade { color: rgba(255,255,255,0.7); }
+.depth1 { border-left: 4px solid var(--olive); }
+.depth2 { border-left: 4px solid var(--teal); }
+.depth3 { border-left: 4px solid var(--slate); }
+.depth4 { border-left: 4px solid var(--slate-light); background: #faf8f2; }
+.isLeaf { opacity: 0.92; }
+
+/* Open role */
+.openRole { border-style: dashed; border-color: var(--accent); background: #fffbf0; }
+.openRole .name { color: var(--accent); }
+
+/* Orphan */
+.orphanNode { border-color: var(--red); border-style: dashed; background: #fef2f2; }

@@ -1,0 +1,97 @@
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.stats { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.stat { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate-2); background: var(--white); border: 1px solid rgba(0,0,0,0.08); padding: 5px 12px; border-radius: 2px; }
+.statWarn { composes: stat; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.fitBtn {
+  background: var(--ink); color: var(--cream); border: none; padding: 6px 14px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  cursor: pointer; border-radius: 2px; transition: background 0.2s;
+}
+.fitBtn:hover { background: var(--teal); }
+
+.flowWrap {
+  width: 100%; height: 620px;
+  background: var(--white);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* ── Modals ── */
+.modalOverlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(26,29,32,0.45);
+  backdrop-filter: blur(4px);
+  animation: modal-fade 0.2s ease;
+}
+.modal {
+  background: var(--cream); width: 100%; max-width: 440px;
+  border-radius: 4px; padding: 28px 32px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.3);
+  animation: modal-pop 0.3s cubic-bezier(.2,.8,.2,1);
+}
+.modalTitle {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--slate-light); margin-bottom: 4px;
+}
+.modalParent {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 22px; color: var(--ink); margin-bottom: 18px;
+  letter-spacing: -0.02em;
+}
+.modalWarn {
+  font-size: 13px; color: var(--slate-2); line-height: 1.5;
+  margin-bottom: 16px; padding: 10px 12px;
+  background: #fef2f2; border-left: 3px solid var(--red);
+  border-radius: 2px;
+}
+.modalNote {
+  font-size: 13px; color: var(--slate-2); line-height: 1.5; margin-bottom: 16px;
+}
+
+.fieldLabel {
+  display: block; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--slate-light); margin-bottom: 6px; margin-top: 12px;
+}
+.fieldInput, .fieldSelect {
+  width: 100%; padding: 10px 14px;
+  border: 1px solid rgba(0,0,0,0.15); border-radius: 2px;
+  font-family: var(--font-body); font-size: 14px;
+  color: var(--ink); background: var(--white);
+  outline: none; transition: border-color 0.2s;
+}
+.fieldInput:focus, .fieldSelect:focus { border-color: var(--teal); }
+.fieldSelect { cursor: pointer; }
+
+.modalActions { display: flex; gap: 10px; margin-top: 22px; }
+.cancelBtn {
+  flex: 1; padding: 11px 16px; border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.15); background: none;
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  cursor: pointer; transition: all 0.2s; color: var(--slate-2);
+}
+.cancelBtn:hover { border-color: var(--ink); color: var(--ink); }
+.confirmBtn {
+  flex: 1; padding: 11px 16px; border-radius: 2px; border: none;
+  background: var(--teal); color: var(--cream);
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.confirmBtn:hover:not(:disabled) { background: var(--teal-deep); }
+.confirmBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.deleteBtn {
+  flex: 1; padding: 11px 16px; border-radius: 2px; border: none;
+  background: var(--red); color: var(--cream);
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.deleteBtn:hover { background: #991b1b; }

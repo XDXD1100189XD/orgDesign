@@ -1,0 +1,60 @@
+:root {
+  --teal: #006b6b;
+  --teal-deep: #004e52;
+  --teal-dark: #003438;
+  --olive: #8a9a2f;
+  --olive-deep: #6b7a22;
+  --slate: #3a4148;
+  --slate-2: #5a6168;
+  --slate-light: #8a9199;
+  --cream: #f4f1e8;
+  --cream-2: #ece7d8;
+  --ink: #1a1d20;
+  --white: #ffffff;
+  --accent: #d97706;
+  --red: #b91c1c;
+
+  --font-display: 'Fraunces', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Inter Tight', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(0,0,0,0.025) 1px, transparent 1px);
+  background-size: 3px 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-pop {
+  from { transform: translateY(20px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(0, 107, 107, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(0, 107, 107, 0.05); }
+}
