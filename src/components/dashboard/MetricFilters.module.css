@@ -86,3 +86,16 @@
   letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--slate-light);
 }
+
+.statusGroup { display: flex; gap: 0; }
+.statusBtn {
+  background: var(--cream-2); border: 1px solid rgba(0,0,0,0.1);
+  padding: 6px 12px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--slate-2); transition: all 0.15s;
+  border-right: none;
+}
+.statusBtn:first-child { border-radius: 3px 0 0 3px; }
+.statusBtn:last-child { border-radius: 0 3px 3px 0; border-right: 1px solid rgba(0,0,0,0.1); }
+.statusBtn:hover { color: var(--ink); background: var(--cream); }
+.statusBtnActive { background: var(--teal); color: var(--cream); border-color: var(--teal-deep); }

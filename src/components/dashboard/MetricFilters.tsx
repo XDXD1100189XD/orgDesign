@@ -7,6 +7,7 @@ import styles from "./MetricFilters.module.css";
 const METRICS = [
   { key: "span", label: "Span of Control" },
   { key: "depth", label: "Org Level (Depth)" },
+  { key: "open_role", label: "Position Status" },
 ];
 
 const OPERATORS: { key: FilterOperator; label: string; symbol: string }[] = [
@@ -88,6 +89,39 @@ export default function MetricFilters({ filters, onChange }: Props) {
                 operator: "any" as FilterOperator,
                 value: 0,
               };
+              if (m.key === "open_role") {
+                return (
+                  <div key={m.key} className={styles.filterRow}>
+                    <div className={styles.metricLabel}>{m.label}</div>
+                    <div className={styles.statusGroup}>
+                      <button
+                        className={`${styles.statusBtn} ${f.operator === "eq" && f.value === 1 ? styles.statusBtnActive : ""}`}
+                        onClick={() => {
+                          if (f.operator === "eq" && f.value === 1) {
+                            updateFilter(m.key, { operator: "any", value: 0 });
+                          } else {
+                            updateFilter(m.key, { operator: "eq", value: 1 });
+                          }
+                        }}
+                      >
+                        Open
+                      </button>
+                      <button
+                        className={`${styles.statusBtn} ${f.operator === "eq" && f.value === 0 ? styles.statusBtnActive : ""}`}
+                        onClick={() => {
+                          if (f.operator === "eq" && f.value === 0) {
+                            updateFilter(m.key, { operator: "any", value: 0 });
+                          } else {
+                            updateFilter(m.key, { operator: "eq", value: 0 });
+                          }
+                        }}
+                      >
+                        Filled
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={m.key} className={styles.filterRow}>
                   <div className={styles.metricLabel}>{m.label}</div>
@@ -153,7 +187,7 @@ export function applyMetricFilters(rows: any, filters: MetricFilter[]) {
   return rows.filter((row: any) => {
     return filters.every((f) => {
       if (f.operator === "any") return true;
-      const val = (row as Record<string, number>)[f.metric] ?? 0;
+      const val = f.metric === 'open_role' ? (row.open_role ? 1 : 0) : (row[f.metric] ?? 0);
       switch (f.operator) {
         case "eq":
           return val === f.value;

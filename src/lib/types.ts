@@ -138,6 +138,7 @@ export interface TableRow {
   manager_id: string | undefined;
   depth: number;
   span: number;
+  open_role: boolean;
 }
 
 // ========================================================

@@ -11,6 +11,7 @@ interface Props { data: DashboardData; }
 const INITIAL_FILTERS: MetricFilter[] = [
   { metric: 'span', operator: 'any' as FilterOperator, value: 0 },
   { metric: 'depth', operator: 'any' as FilterOperator, value: 0 },
+  { metric: 'open_role', operator: 'any' as FilterOperator, value: 0 },
 ];
 
 export default function TableView({ data }: Props) {
@@ -36,6 +37,7 @@ export default function TableView({ data }: Props) {
         manager_id: mgrId,
         depth: m.depth[id] ?? 0,
         span: m.span[id] ?? 0,
+        open_role: v.open_role,
       };
     });
   }, [V, m]);
@@ -84,6 +86,7 @@ export default function TableView({ data }: Props) {
     { key: 'manager', label: 'Manager' },
     { key: 'depth', label: 'Level' },
     { key: 'span', label: 'Span' },
+    { key: 'open_role', label: 'Position Status' },
   ];
 
   return (
@@ -154,6 +157,13 @@ export default function TableView({ data }: Props) {
                 </td>
                 <td className={`${styles.spanCell} ${r.span === 0 ? styles.zero : r.span > 5 ? styles.over : ''}`}>
                   {r.span === 0 ? '—' : `${r.span} ↓`}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  {r.open_role ? (
+                    <span style={{ color: 'green' }}>• Open</span>
+                  ) : (
+                    '—'
+                  )}
                 </td>
               </tr>
             ))}

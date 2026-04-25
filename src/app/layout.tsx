@@ -1,9 +1,10 @@
-import type { Metadata } from 'next';
-import '@/styles/globals.css';
+import type { Metadata } from "next";
+import "@xyflow/react/dist/style.css";
+import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: 'Org Design by the Numbers',
-  description: 'Menu Tech Portfolio — hierarchy analytics dashboard',
+  title: "Org Design by the Numbers",
+  description: "Menu Tech Portfolio — hierarchy analytics dashboard",
 };
 
 export default function RootLayout({
@@ -15,7 +16,11 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
         <link
           href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400;500;600;700&display=swap"
           rel="stylesheet"
