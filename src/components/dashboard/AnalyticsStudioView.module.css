@@ -1,0 +1,986 @@
+/* ── Wrap ─────────────────────────────────────────────────────────────────── */
+
+.wrap {
+  padding: 32px 0 64px;
+  animation: asFade 0.3s ease both;
+}
+
+@keyframes asFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Studio header ───────────────────────────────────────────────────────── */
+
+.studioHeader {
+  margin-bottom: 28px;
+}
+
+.studioTitle {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+
+.studioSub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-light);
+  letter-spacing: 0.08em;
+}
+
+/* ── Field palette ───────────────────────────────────────────────────────── */
+
+.palette {
+  background: var(--cream-2);
+  border-radius: 6px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.paletteLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.paletteChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fieldChip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.13);
+  border-radius: 3px;
+  padding: 5px 11px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow 0.12s, border-color 0.12s, background 0.12s;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.fieldChip:hover {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(0, 107, 107, 0.1);
+}
+
+.fieldChipDragging {
+  opacity: 0.3;
+}
+
+.fieldChipOverlay {
+  opacity: 1;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  cursor: grabbing;
+  background: #fff;
+  border: 1px solid var(--teal);
+  color: var(--teal);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+
+.fieldChipDerived {
+  background: #fefce8;
+  border-color: rgba(192, 168, 0, 0.35);
+  color: #7a6200;
+}
+.fieldChipDerived:hover {
+  border-color: var(--olive);
+  box-shadow: 0 0 0 2px rgba(192, 168, 0, 0.15);
+}
+
+.paletteLabelDerived {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7a6200;
+  font-weight: 600;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+.derivedMark {
+  font-size: 10px;
+  margin-right: 4px;
+  opacity: 0.7;
+}
+
+/* ── Drop zones ──────────────────────────────────────────────────────────── */
+
+.zones {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.dropZone {
+  border: 1.5px dashed rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 16px;
+  min-height: 88px;
+  transition: border-color 0.15s, background 0.15s;
+  background: transparent;
+}
+
+.dropZoneOver {
+  border-color: var(--teal);
+  background: rgba(0, 107, 107, 0.04);
+}
+
+.dropZoneFilled {
+  border-style: solid;
+  border-color: rgba(0, 107, 107, 0.3);
+  background: rgba(0, 107, 107, 0.02);
+}
+
+.dzLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.dzSub {
+  font-size: 11px;
+  color: var(--slate-light);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.dzEmpty {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.28);
+  font-style: italic;
+}
+
+.dzField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--teal);
+  border-radius: 3px;
+  padding: 5px 8px 5px 11px;
+  max-width: 100%;
+}
+
+.dzFieldName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dzClear {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.1s;
+}
+.dzClear:hover { color: #fff; }
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--cream-2);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.controlGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.controlLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btnRow {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ctrlBtn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.13);
+  background: #fff;
+  color: var(--slate);
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+
+.ctrlBtn:hover {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.ctrlBtnActive {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff !important;
+}
+
+/* ── Preview label ───────────────────────────────────────────────────────── */
+
+.previewLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+  margin-bottom: 12px;
+}
+
+/* ── Chart ───────────────────────────────────────────────────────────────── */
+
+.chartWrap {
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  padding: 20px 16px 12px;
+  margin-bottom: 14px;
+}
+
+.chartEmpty {
+  text-align: center;
+  padding: 52px 20px;
+  font-size: 13px;
+  color: var(--slate-light);
+}
+
+/* ── Pivot table ─────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.ptScroll {
+  overflow-x: auto;
+}
+
+.pt {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 360px;
+}
+
+.ptTh {
+  background: #1a2333;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 10px 16px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ptTh:not(:first-child) { text-align: right; }
+
+.ptRow { transition: background 0.1s; }
+.ptRow:nth-child(even) { background: var(--cream-2); }
+.ptRow:hover { background: rgba(0, 107, 107, 0.05); }
+
+.ptTdKey {
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
+}
+
+.ptTd {
+  padding: 9px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--slate);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ptTdTotal {
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.ptNull { color: rgba(0, 0, 0, 0.2); }
+
+/* ── Save bar ────────────────────────────────────────────────────────────── */
+
+.saveBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 48px;
+  flex-wrap: wrap;
+}
+
+.saveBtn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--teal);
+  border: 1.5px solid var(--teal);
+  border-radius: 4px;
+  background: transparent;
+  padding: 9px 20px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.12s;
+}
+.saveBtn:hover { background: var(--teal); color: #fff; }
+
+.saveInput {
+  font-family: var(--font-body);
+  font-size: 13px;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  padding: 8px 13px;
+  outline: none;
+  width: 230px;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.12s;
+}
+.saveInput:focus { border-color: var(--teal); }
+
+.saveConfirm {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.saveConfirm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.saveCancel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: transparent;
+  color: var(--slate);
+  border: 1px solid rgba(0, 0, 0, 0.13);
+  border-radius: 4px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.saveCancel:hover { border-color: var(--slate); }
+
+/* ── Saved views ─────────────────────────────────────────────────────────── */
+
+.savedSection {
+  border-top: 1px solid rgba(0, 0, 0, 0.09);
+  padding-top: 36px;
+}
+
+.savedHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.savedTitle {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.savedBadge {
+  background: var(--teal);
+  color: #fff;
+  border-radius: 3px;
+  padding: 2px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.savedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.savedCard {
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.savedCard:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 107, 107, 0.2);
+}
+
+.savedCardChart {
+  background: var(--cream-2);
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.savedChartEmpty {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--cream-2) 0%, #e0dbc8 100%);
+}
+
+.savedCardBody {
+  padding: 14px 16px;
+}
+
+.savedCardName {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedCardMeta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-light);
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedCardRow {
+  font-size: 11px;
+  color: var(--slate-light);
+  margin-bottom: 12px;
+}
+
+.savedCardActions {
+  display: flex;
+  gap: 6px;
+}
+
+.savedLoad {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.savedLoad:hover { opacity: 0.85; }
+
+.savedDelete {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: transparent;
+  color: var(--slate-light);
+  border: 1px solid rgba(0, 0, 0, 0.13);
+  border-radius: 3px;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.savedDelete:hover { color: var(--red); border-color: var(--red); }
+
+/* ── Empty / config hint states ──────────────────────────────────────────── */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 20px;
+  gap: 14px;
+}
+
+.emptyIcon {
+  font-size: 44px;
+  opacity: 0.3;
+  line-height: 1;
+}
+
+.emptyTitle {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.emptySub {
+  font-size: 14px;
+  color: var(--slate-light);
+  text-align: center;
+  max-width: 360px;
+}
+
+.configHint {
+  text-align: center;
+  padding: 52px 20px;
+  font-size: 14px;
+  color: var(--slate-light);
+  background: var(--cream-2);
+  border-radius: 6px;
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+  line-height: 1.7;
+}
+
+.configHint strong {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+
+.asSpin {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(0, 107, 107, 0.15);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: asSpinAnim 0.8s linear infinite;
+}
+
+@keyframes asSpinAnim {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .zones {
+    grid-template-columns: 1fr;
+  }
+  .controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .savedGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 540px) {
+  .savedGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── SQL Editor ──────────────────────────────────────────────────────────── */
+
+.sqlSection {
+  margin-top: 56px;
+  border-top: 2px solid var(--ink);
+  padding-top: 36px;
+}
+
+.sqlSectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.sqlSectionTitle {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.sqlSectionMeta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-light);
+  letter-spacing: 0.07em;
+}
+
+.sqlCode {
+  font-family: var(--font-mono);
+  background: rgba(0, 107, 107, 0.1);
+  color: var(--teal);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+
+.sqlModified {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sqlResetBtn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: transparent;
+  color: var(--slate);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.12s;
+}
+.sqlResetBtn:hover { border-color: var(--red); color: var(--red); }
+
+/* Column chips */
+
+.sqlColWrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.sqlColLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+  padding-top: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sqlCols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sqlColChip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: rgba(0, 107, 107, 0.07);
+  color: var(--teal);
+  border: 1px solid rgba(0, 107, 107, 0.2);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.1s;
+  white-space: nowrap;
+}
+.sqlColChip:hover {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+
+.sqlColChipDerived {
+  background: rgba(192, 168, 0, 0.08);
+  color: #7a6200;
+  border-color: rgba(192, 168, 0, 0.3);
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.sqlColChipDerived:hover {
+  background: #c0a800;
+  color: #fff;
+  border-color: #c0a800;
+}
+
+/* Dark editor */
+
+.sqlEditorBox {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  margin-bottom: 0;
+}
+
+.sqlTextarea {
+  display: block;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: none;
+  padding: 18px 20px;
+  resize: vertical;
+  outline: none;
+  min-height: 110px;
+  caret-color: var(--teal);
+  tab-size: 2;
+  -moz-tab-size: 2;
+}
+
+.sqlTextarea::placeholder { color: rgba(255, 255, 255, 0.2); }
+
+.sqlToolbar {
+  background: #161b22;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sqlRunBtn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 18px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: opacity 0.12s;
+  flex-shrink: 0;
+}
+.sqlRunBtn:hover { opacity: 0.85; }
+
+.sqlShortcut {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+
+.sqlExamples {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.sqlExLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.sqlExBtn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.1s;
+}
+.sqlExBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Results area */
+
+.sqlResultBox {
+  margin-top: 12px;
+}
+
+.sqlError {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(185, 28, 28, 0.07);
+  border: 1px solid rgba(185, 28, 28, 0.2);
+  border-radius: 5px;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--red);
+  line-height: 1.5;
+}
+
+.sqlErrorBadge {
+  background: var(--red);
+  color: #fff;
+  border-radius: 2px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sqlAffected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(0, 107, 107, 0.07);
+  border: 1px solid rgba(0, 107, 107, 0.2);
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.sqlAffectedCheck {
+  font-size: 16px;
+}
+
+.sqlAffectedSub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--slate-light);
+  margin-left: 4px;
+}
+
+.sqlResultMeta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate-light);
+  letter-spacing: 0.07em;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.sqlTruncNote {
+  color: var(--accent);
+}
+
+.sqlTableScroll {
+  overflow-x: auto;
+  border-radius: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.sqlTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 400px;
+}
+
+.sqlTh {
+  background: #1a2333;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 9px 14px;
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sqlTr:nth-child(even) { background: var(--cream-2); }
+.sqlTr:hover { background: rgba(0, 107, 107, 0.05); }
+
+.sqlTd {
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--slate);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sqlNull {
+  color: rgba(0, 0, 0, 0.25);
+  font-style: italic;
+}
+
+.sqlEmpty {
+  text-align: center;
+  padding: 32px;
+  font-size: 13px;
+  color: var(--slate-light);
+  background: var(--cream-2);
+  border-radius: 5px;
+}

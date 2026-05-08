@@ -6,6 +6,9 @@ import { WEBHOOK_URL, ANALYSIS_PROMPT } from '@/lib/constants';
 import { unwrapResponse, parseWebhookResponse } from '@/lib/normalize';
 import type { DashboardData, FileInputType } from '@/lib/types';
 import { FILE_TYPE_CONFIG } from '@/lib/types';
+import type { ColumnMapping } from '@/lib/fieldDictionary';
+import type { ExcelRow } from '@/lib/parseExcel';
+import ColumnMappingStep from './ColumnMappingStep';
 import styles from './UploadModal.module.css';
 
 type Stage = 'upload' | 'parse' | 'render';
@@ -13,9 +16,11 @@ const FILE_TYPES: FileInputType[] = ['image', 'text', 'excel'];
 
 interface Props {
   onDataReady: (data: DashboardData) => void;
+  onExcelFile?: (file: File) => void;
+  onExcelParsed?: (rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => void;
 }
 
-export default function UploadModal({ onDataReady }: Props) {
+export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }: Props) {
   const [fileType, setFileType] = useState<FileInputType>('image');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -26,6 +31,12 @@ export default function UploadModal({ onDataReady }: Props) {
   const [doneStages, setDoneStages] = useState<Set<Stage>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Excel client-side flow
+  const [excelRows, setExcelRows] = useState<ExcelRow[] | null>(null);
+  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [autoMapping, setAutoMapping] = useState<ColumnMapping | null>(null);
+  const [showMapping, setShowMapping] = useState(false);
 
   const config = FILE_TYPE_CONFIG[fileType];
 
@@ -69,11 +80,49 @@ export default function UploadModal({ onDataReady }: Props) {
 
   const canSubmit = fileType === 'text' ? textInput.trim().length > 0 : !!file;
 
+  const handleMappingConfirm = async (confirmedMapping: ColumnMapping) => {
+    setShowMapping(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
+      const dashData = buildHierarchyFromMapping(excelRows!, confirmedMapping);
+      onDataReady(dashData);
+      if (file) onExcelFile?.(file);
+      onExcelParsed?.(excelRows!, excelHeaders, confirmedMapping);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not build hierarchy.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const analyze = async () => {
     if (!canSubmit) return;
     setError(null);
     setLoading(true);
     setDoneStages(new Set());
+
+    // Excel: parse locally and show mapping UI — no server call
+    if (fileType === 'excel') {
+      try {
+        const { parseExcelFile } = await import('@/lib/parseExcel');
+        const rows = await parseExcelFile(file!);
+        if (rows.length === 0) throw new Error('The file appears to be empty.');
+        const headers = Object.keys(rows[0]);
+        const { matchColumns } = await import('@/lib/fieldDictionary');
+        const mapping = matchColumns(headers);
+        setExcelRows(rows);
+        setExcelHeaders(headers);
+        setAutoMapping(mapping);
+        setShowMapping(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not parse Excel file.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     try {
       markStage('upload', false);
@@ -138,6 +187,19 @@ export default function UploadModal({ onDataReady }: Props) {
     { key: 'parse', label: 'Analyzing & extracting hierarchy…' },
     { key: 'render', label: 'Rendering dashboard…' },
   ];
+
+  if (showMapping && autoMapping) {
+    return (
+      <div className={styles.overlay}>
+        <ColumnMappingStep
+          headers={excelHeaders}
+          mapping={autoMapping}
+          onConfirm={handleMappingConfirm}
+          onBack={() => { setShowMapping(false); setLoading(false); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.overlay}>

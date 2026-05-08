@@ -33,6 +33,20 @@ export function computeMetrics(edges: RawEdge[]): ComputedMetrics {
     }
   });
 
+  // Subtree count (all downstream descendants, not just direct reports)
+  const subtreeCount: Record<string, number> = {};
+  const visiting = new Set<string>();
+  function countSubtree(node: string): number {
+    if (node in subtreeCount) return subtreeCount[node];
+    if (visiting.has(node)) return 0; // cycle guard
+    visiting.add(node);
+    const ch = children[node] || [];
+    subtreeCount[node] = ch.reduce((acc, c) => acc + 1 + countSubtree(c), 0);
+    visiting.delete(node);
+    return subtreeCount[node];
+  }
+  nodeList.forEach(n => countSubtree(n));
+
   const orgDepth = Object.values(depth).length
     ? Math.max(...Object.values(depth))
     : 0;
@@ -120,6 +134,7 @@ export function computeMetrics(edges: RawEdge[]): ComputedMetrics {
     },
     span,
     depth,
+    subtree_count: subtreeCount,
     children,
     parent,
     org_structure: {

@@ -11,8 +11,10 @@ interface Props {
     onAdd?: (parentId: string) => void;
     onEdit?: (id: string) => void;
     onToggleCollapse?: (id: string) => void;
+    onDrillDown?: (id: string) => void;
     collapsed?: boolean;
     childCount?: number;
+    isBoundary?: boolean;
   };
 }
 
@@ -82,23 +84,41 @@ function OrgNode({ data }: Props) {
       <div className={styles.meta}>
         {data.empId && <span className={styles.id}>{data.empId}</span>}
         {data.grade && <span className={styles.grade}>{data.grade}</span>}
+        {data.geo && <span className={styles.geoBadge}>{data.geo}</span>}
         {data.isUserCreated && <span className={styles.userBadge}>USER</span>}
         {data.isOrphan && <span className={styles.orphanBadge}>ORPHAN</span>}
         {data.span > 0 && (
           <span className={styles.spanBadge}>{data.span} ↓</span>
         )}
+        {(data.subtreeCount ?? 0) > 0 && (
+          <span className={styles.subtreeBadge}>{data.subtreeCount} ⬇</span>
+        )}
       </div>
 
       {(data.childCount ?? 0) > 0 && (
         <button
-          className={styles.collapseBtn}
+          className={`${styles.collapseBtn} ${data.isBoundary ? styles.drillBtn : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            data.onToggleCollapse?.(data.tempId);
+            if (data.isBoundary || data.collapsed) {
+              data.onDrillDown?.(data.tempId);
+            } else {
+              data.onToggleCollapse?.(data.tempId);
+            }
           }}
-          title={data.collapsed ? "Expand subtree" : "Collapse subtree"}
+          title={
+            data.isBoundary
+              ? `Drill into subtree (${data.childCount} reports below)`
+              : data.collapsed
+                ? `Open as head view`
+                : "Collapse subtree"
+          }
         >
-          {data.collapsed ? `▸ ${data.childCount}` : "▾"}
+          {data.isBoundary
+            ? `↓ ${data.childCount}`
+            : data.collapsed
+              ? `▸ ${data.childCount}`
+              : "▾"}
         </button>
       )}
 

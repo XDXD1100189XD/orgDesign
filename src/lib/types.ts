@@ -79,6 +79,32 @@ export interface WebhookResponse {
 }
 
 // ========================================================
+// Compensation types
+// ========================================================
+export interface CompBand {
+  min: number;
+  max: number;
+  currency: string;
+}
+
+// grade → geo → band; both levels may be absent at runtime
+export type CompMatrix = Record<string, Record<string, CompBand | undefined> | undefined>;
+
+export interface CompTransition {
+  from_open: boolean;
+  from_geo: string | null;
+  from_band_min: number | null;
+  from_band_max: number | null;
+  from_currency: string | null;
+  to_open: boolean;
+  to_geo: string | null;
+  to_band_min: number | null;
+  to_band_max: number | null;
+  to_currency: string | null;
+  changed_at: string; // ISO
+}
+
+// ========================================================
 // Normalized types used by dashboard components
 // ========================================================
 export interface NormalizedVertex {
@@ -89,6 +115,8 @@ export interface NormalizedVertex {
   unnamed: boolean;
   dept: string | null;
   open_role: boolean;
+  geo?: string | null;
+  transition?: CompTransition | null;
 }
 
 export interface ComputedMetrics {
@@ -100,6 +128,7 @@ export interface ComputedMetrics {
   };
   span: Record<string, number>;
   depth: Record<string, number>;
+  subtree_count: Record<string, number>;
   children: Record<string, string[]>;
   parent: Record<string, string>;
   org_structure: {
@@ -125,6 +154,7 @@ export interface DashboardData {
   metrics: ComputedMetrics;
   warnings: string[];
   edges: RawEdge[];  // preserved for React Flow mutations
+  compMatrix?: CompMatrix;
 }
 
 export interface TableRow {
@@ -178,10 +208,12 @@ export interface OrgNodeData {
   role: string;
   empId: string | null;
   grade: string | null;
+  geo?: string | null;
   unnamed: boolean;
   span: number;
   depth: number;
   openRole: boolean;
   isUserCreated?: boolean;
   isOrphan?: boolean;
+  subtreeCount?: number;
 }

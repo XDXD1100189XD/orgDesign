@@ -19,6 +19,8 @@ import type {
   NormalizedVertex,
   OrgNodeData,
   RawEdge,
+  CompMatrix,
+  CompTransition,
 } from "@/lib/types";
 import { computeMetrics } from "@/lib/metrics";
 import OrgNode from "./OrgNode";
@@ -33,7 +35,7 @@ interface Props {
 const NODE_W = 200;
 const GAP_X = 40;
 const GAP_Y = 140;
-const userCreatedIds = new Set<string>();
+const LAYER_LIMIT = 3;
 
 function getOrphans(
   V: Record<string, NormalizedVertex>,
@@ -54,39 +56,41 @@ function getOrphans(
 
 function buildGraph(
   data: DashboardData,
-  collapsed: Set<string>,
+  viewRoot: string,
+  localCollapsed: Set<string>,
   onDel: (id: string) => void,
   onAdd: (id: string) => void,
   onEdit: (id: string) => void,
   onToggle: (id: string) => void,
+  onDrillDown: (id: string) => void,
+  userCreatedIds: Set<string>,
 ): { nodes: Node[]; edges: Edge[] } {
   const { vertices: V, metrics: m } = data;
-  const root = m.basic.roots[0];
   const out: { nodes: Node[]; edges: Edge[] } = { nodes: [], edges: [] };
-  if (!root) return out;
+  if (!viewRoot || !V[viewRoot]) return out;
 
   const w: Record<string, number> = {};
-  function cw(id: string): number {
-    if (collapsed.has(id)) {
+  function cw(id: string, layer: number): number {
+    if (localCollapsed.has(id) || layer >= LAYER_LIMIT - 1) {
       w[id] = NODE_W;
       return NODE_W;
     }
     const kids = m.children[id] || [];
-    if (!kids.length) {
-      w[id] = NODE_W;
-      return NODE_W;
-    }
-    const t = kids.reduce((s, k) => s + cw(k) + GAP_X, -GAP_X);
+    if (!kids.length) { w[id] = NODE_W; return NODE_W; }
+    const t = kids.reduce((s, k) => s + cw(k, layer + 1) + GAP_X, -GAP_X);
     w[id] = Math.max(NODE_W, t);
     return w[id];
   }
-  cw(root);
+  cw(viewRoot, 0);
 
-  function place(id: string, x: number, y: number) {
+  function place(id: string, x: number, y: number, layer: number) {
     const v = V[id];
     if (!v) return;
-    const isCol = collapsed.has(id);
-    const kids = isCol ? [] : m.children[id] || [];
+    const allKids = m.children[id] || [];
+    const isCol = localCollapsed.has(id);
+    const isBoundary = layer >= LAYER_LIMIT - 1 && allKids.length > 0;
+    const visibleKids = (isBoundary || isCol) ? [] : allKids;
+
     out.nodes.push({
       id,
       type: "org",
@@ -98,22 +102,27 @@ function buildGraph(
         role: v.role,
         empId: v.id,
         grade: v.grade,
+        geo: v.geo ?? null,
         unnamed: v.unnamed,
         span: m.span[id] ?? 0,
         depth: m.depth[id] ?? 0,
         openRole: v.open_role,
         isUserCreated: userCreatedIds.has(id),
         isOrphan: false,
+        isBoundary,
+        subtreeCount: m.subtree_count[id] ?? 0,
         onDelete: onDel,
         onAdd,
         onEdit,
         onToggleCollapse: onToggle,
+        onDrillDown,
         collapsed: isCol,
-        childCount: (m.children[id] || []).length,
+        childCount: allKids.length,
       } as OrgNodeData & Record<string, unknown>,
     });
+
     let cx = x - ((w[id] || NODE_W) - NODE_W) / 2;
-    kids.forEach((kid) => {
+    visibleKids.forEach((kid) => {
       const isU = userCreatedIds.has(kid);
       out.edges.push({
         id: `${id}->${kid}`,
@@ -126,52 +135,56 @@ function buildGraph(
           strokeDasharray: isU ? "6 3" : undefined,
         },
         label: isU ? "user created" : undefined,
-        labelStyle: isU
-          ? { fill: "#6366f1", fontSize: 9, fontWeight: 700 }
-          : undefined,
+        labelStyle: isU ? { fill: "#6366f1", fontSize: 9, fontWeight: 700 } : undefined,
         labelBgStyle: isU ? { fill: "#f4f1e8", fillOpacity: 0.9 } : undefined,
         labelBgPadding: isU ? ([4, 6] as [number, number]) : undefined,
       });
-      place(kid, cx + ((w[kid] || NODE_W) - NODE_W) / 2, y + GAP_Y);
+      place(kid, cx + ((w[kid] || NODE_W) - NODE_W) / 2, y + GAP_Y, layer + 1);
       cx += (w[kid] || NODE_W) + GAP_X;
     });
   }
-  place(root, 0, 0);
+  place(viewRoot, 0, 0, 0);
 
-  const orphans = getOrphans(V, m);
-  if (orphans.length) {
-    const maxY = out.nodes.length
-      ? Math.max(...out.nodes.map((n) => n.position.y)) + GAP_Y + 80
-      : 0;
-    orphans.forEach((id, i) => {
-      const v = V[id];
-      if (!v) return;
-      out.nodes.push({
-        id,
-        type: "org",
-        draggable: true,
-        position: { x: i * (NODE_W + GAP_X), y: maxY },
-        data: {
-          tempId: id,
-          displayName: v.display_name,
-          role: v.role,
-          empId: v.id,
-          grade: v.grade,
-          unnamed: v.unnamed,
-          span: 0,
-          depth: -1,
-          openRole: v.open_role,
-          isUserCreated: userCreatedIds.has(id),
-          isOrphan: true,
-          onDelete: onDel,
-          onAdd,
-          onEdit,
-          onToggleCollapse: onToggle,
-          collapsed: false,
-          childCount: 0,
-        } as OrgNodeData & Record<string, unknown>,
+  // Show orphans only in the global root view
+  const globalRoot = m.basic.roots[0];
+  if (viewRoot === globalRoot) {
+    const orphans = getOrphans(V, m);
+    if (orphans.length) {
+      const maxY = out.nodes.length
+        ? Math.max(...out.nodes.map((n) => n.position.y)) + GAP_Y + 80
+        : 0;
+      orphans.forEach((id, i) => {
+        const v = V[id];
+        if (!v) return;
+        out.nodes.push({
+          id,
+          type: "org",
+          draggable: true,
+          position: { x: i * (NODE_W + GAP_X), y: maxY },
+          data: {
+            tempId: id,
+            displayName: v.display_name,
+            role: v.role,
+            empId: v.id,
+            grade: v.grade,
+            unnamed: v.unnamed,
+            span: 0,
+            depth: -1,
+            openRole: v.open_role,
+            isUserCreated: userCreatedIds.has(id),
+            isOrphan: true,
+            isBoundary: false,
+            onDelete: onDel,
+            onAdd,
+            onEdit,
+            onToggleCollapse: onToggle,
+            onDrillDown,
+            collapsed: false,
+            childCount: 0,
+          } as OrgNodeData & Record<string, unknown>,
+        });
       });
-    });
+    }
   }
   return out;
 }
@@ -202,82 +215,168 @@ function findCycle(
   return null;
 }
 
-// ── Add Modal ──
-function AddModal({
+// ── Shared node form (Add + Edit status) ──
+interface NodePayload {
+  name: string;
+  jobId: string;
+  role: string;
+  grade: string;
+  geo: string;
+  dept: string;
+  isOpen: boolean;
+}
+
+function NodeFormModal({
+  mode,
   parentName,
+  initialData,
+  compMatrix,
   onConfirm,
   onCancel,
 }: {
-  parentName: string;
-  onConfirm: (name: string, role: string, jobId: string) => void;
+  mode: "add" | "edit-status";
+  parentName?: string;
+  initialData?: { isOpen: boolean; name: string; jobId: string; role: string; grade: string; geo: string; dept: string };
+  compMatrix?: CompMatrix;
+  onConfirm: (p: NodePayload) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [jobId, setJobId] = useState("");
-  const hasInput = name.trim() || jobId.trim();
+  const startOpen = mode === "edit-status" ? !initialData!.isOpen : false;
+  const [isOpen, setIsOpen] = useState(startOpen);
+  const [name,  setName]  = useState(mode === "edit-status" && !initialData!.isOpen ? initialData!.name : "");
+  const [jobId, setJobId] = useState(initialData?.jobId || "");
+  const [role,  setRole]  = useState(initialData?.role  || "");
+  const [grade, setGrade] = useState(initialData?.grade || "");
+  const [geo,   setGeo]   = useState(initialData?.geo   || "");
+  const [dept,  setDept]  = useState(initialData?.dept  || "");
+
+  const knownGeos = compMatrix
+    ? [...new Set(Object.values(compMatrix).flatMap((g) => (g ? Object.keys(g) : [])))]
+    : [];
+  const lookupBand = compMatrix && grade.trim() && geo.trim()
+    ? compMatrix[grade.trim()]?.[geo.trim()] ?? null
+    : null;
+
+  const canConfirm = isOpen ? !!jobId.trim() : !!name.trim();
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modal}>
-        <h3 className={styles.modalTitle}>Add report under</h3>
-        <p className={styles.modalParent}>{parentName}</p>
+        <h3 className={styles.modalTitle}>
+          {mode === "add" ? "Add report under" : "Edit node"}
+        </h3>
+        {mode === "add"
+          ? <p className={styles.modalParent}>{parentName}</p>
+          : <p className={styles.modalParent}>{initialData?.name || initialData?.jobId}</p>
+        }
+
+        {mode === "edit-status" && (
+          <p className={styles.modalNote}>
+            Review all fields. If changing role status, update compensation separately.
+          </p>
+        )}
+
+        <label className={styles.fieldLabel}>Status <span className={styles.reqMark}>*</span></label>
+        <div className={styles.statusToggle}>
+          <button
+            type="button"
+            className={`${styles.statusOpt} ${!isOpen ? styles.statusFilledActive : ""}`}
+            onClick={() => setIsOpen(false)}
+          >
+            ● Filled
+          </button>
+          <button
+            type="button"
+            className={`${styles.statusOpt} ${isOpen ? styles.statusOpenActive : ""}`}
+            onClick={() => setIsOpen(true)}
+          >
+            ○ Open
+          </button>
+        </div>
 
         <label className={styles.fieldLabel}>
-          Name <span className={styles.hint}>(filled role)</span>
+          Name {!isOpen && <span className={styles.reqMark}>*</span>}
+          {isOpen && <span className={styles.hint}> — not applicable for open roles</span>}
         </label>
         <input
           className={styles.fieldInput}
-          placeholder="Employee name"
+          placeholder={isOpen ? "—" : "Employee name"}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          autoFocus
+          disabled={isOpen}
+          autoFocus={!isOpen}
         />
 
         <label className={styles.fieldLabel}>
-          Job ID <span className={styles.hint}>(open role if no name)</span>
+          Employee / Job ID {isOpen && <span className={styles.reqMark}>*</span>}
         </label>
         <input
           className={styles.fieldInput}
-          placeholder="e.g. EDAA1234"
+          placeholder={isOpen ? "Job ID (required)" : "Employee ID (optional)"}
           value={jobId}
           onChange={(e) => setJobId(e.target.value)}
+          autoFocus={isOpen}
         />
 
-        <label className={styles.fieldLabel}>Role / Title</label>
+        <label className={styles.fieldLabel}>Job Title / Role</label>
         <input
           className={styles.fieldInput}
-          placeholder="Job title"
+          placeholder="e.g. Senior Engineer"
           value={role}
           onChange={(e) => setRole(e.target.value)}
         />
 
-        {hasInput && (
-          <div className={styles.statusPreview}>
-            {name.trim() ? (
-              <span className={styles.previewFilled}>
-                ● Will be created as <b>Filled</b> role
-              </span>
-            ) : (
-              <span className={styles.previewOpen}>
-                ○ Will be created as <b>Open</b> role
-                {jobId.trim() ? ` (${jobId.trim()})` : ""}
-              </span>
-            )}
-          </div>
+        <label className={styles.fieldLabel}>Grade / Level</label>
+        <input
+          className={styles.fieldInput}
+          placeholder="e.g. L5, IC4, M2"
+          value={grade}
+          onChange={(e) => setGrade(e.target.value)}
+        />
+
+        <label className={styles.fieldLabel}>Geography / Location</label>
+        <input
+          className={styles.fieldInput}
+          placeholder="e.g. US, IN-GCC, UK"
+          value={geo}
+          onChange={(e) => setGeo(e.target.value)}
+          list="nf-geo-list"
+        />
+        {knownGeos.length > 0 && (
+          <datalist id="nf-geo-list">
+            {knownGeos.map((g) => <option key={g} value={g} />)}
+          </datalist>
         )}
+        {grade.trim() && geo.trim() && compMatrix && (
+          lookupBand ? (
+            <div className={styles.compBandInfo}>
+              Expected: {lookupBand.currency} {lookupBand.min.toLocaleString()} – {lookupBand.max.toLocaleString()}
+            </div>
+          ) : (
+            <div className={styles.compBandWarn}>
+              No band for {grade.trim()} × {geo.trim()} — define in Comp Setup tab.
+            </div>
+          )
+        )}
+
+        <label className={styles.fieldLabel}>Department</label>
+        <input
+          className={styles.fieldInput}
+          placeholder="e.g. Engineering, Design"
+          value={dept}
+          onChange={(e) => setDept(e.target.value)}
+        />
 
         <div className={styles.modalActions}>
           <button className={styles.cancelBtn} onClick={onCancel}>
-            Cancel
+            {mode === "add" ? "Cancel" : "Back"}
           </button>
           <button
             className={styles.confirmBtn}
-            disabled={!hasInput}
-            onClick={() =>
-              onConfirm(name.trim(), role.trim() || "New Role", jobId.trim())
-            }
+            disabled={!canConfirm}
+            onClick={() => onConfirm({ name: name.trim(), jobId: jobId.trim(), role: role.trim(), grade: grade.trim(), geo: geo.trim(), dept: dept.trim(), isOpen })}
           >
-            Add Node
+            {mode === "add" ? "Add Node" : "Save Changes"}
           </button>
         </div>
       </div>
@@ -364,11 +463,13 @@ type EditOp = null | "menu" | "reassign" | "cycle-warn" | "toggle-status";
 function EditModal({
   nodeId,
   data,
+  userCreatedIds,
   onSave,
   onCancel,
 }: {
   nodeId: string;
   data: DashboardData;
+  userCreatedIds: Set<string>;
   onSave: (newData: DashboardData) => void;
   onCancel: () => void;
 }) {
@@ -378,8 +479,6 @@ function EditModal({
   const [newMgr, setNewMgr] = useState<string>(m.parent[nodeId] || "");
   const [cyclePath, setCyclePath] = useState<string[] | null>(null);
   const [breakEdge, setBreakEdge] = useState<string>("");
-  const [nameInput, setNameInput] = useState<string>("");
-  const [jobIdInput, setJobIdInput] = useState<string>("");
 
   if (!v) {
     onCancel();
@@ -389,13 +488,6 @@ function EditModal({
   const currentMgr = m.parent[nodeId];
   const isOpen = v.open_role;
   const displayId = v.id || "—";
-
-  useEffect(() => {
-    if (op === "toggle-status") {
-      setNameInput(v.unnamed ? "" : v.display_name);
-      setJobIdInput(v.id || "");
-    }
-  }, [op, v.display_name, v.id, v.unnamed]);
 
   // All potential managers (everyone except self)
   const allCandidates = Object.keys(V).filter((id) => id !== nodeId);
@@ -460,37 +552,54 @@ function EditModal({
     onSave({ ...data, edges: nEdges, metrics: computeMetrics(nEdges) });
   };
 
-  // ── Toggle open/filled
-  const handleToggleStatus = () => {
-    const nVerts = { ...V };
-
-    if (isOpen) {
-      const name = nameInput.trim();
-      if (!name) return;
-      nVerts[nodeId] = {
+  // ── Toggle open/filled (writes M3 transition record on status/geo change)
+  const handleToggleStatus = (payload: NodePayload) => {
+    const { name, jobId, role, grade, geo, dept, isOpen: newIsOpen } = payload;
+    const prevGeo = v.geo ?? null;
+    const newGeo  = geo || null;
+    const prevBand = data.compMatrix && v.grade && prevGeo
+      ? data.compMatrix[v.grade]?.[prevGeo] ?? null : null;
+    const resolvedGrade = grade || v.grade;
+    const newBand = data.compMatrix && resolvedGrade && newGeo
+      ? data.compMatrix[resolvedGrade]?.[newGeo] ?? null : null;
+    const hasChange = isOpen !== newIsOpen || prevGeo !== newGeo;
+    const transition: CompTransition | null = hasChange ? {
+      from_open: isOpen,
+      from_geo: prevGeo,
+      from_band_min: prevBand?.min ?? null,
+      from_band_max: prevBand?.max ?? null,
+      from_currency: prevBand?.currency ?? null,
+      to_open: newIsOpen,
+      to_geo: newGeo,
+      to_band_min: newBand?.min ?? null,
+      to_band_max: newBand?.max ?? null,
+      to_currency: newBand?.currency ?? null,
+      changed_at: new Date().toISOString(),
+    } : (v.transition ?? null);
+    const displayName = newIsOpen ? (jobId || v.display_name) : name;
+    const nVerts = {
+      ...V,
+      [nodeId]: {
         ...v,
-        display_name: name,
-        open_role: false,
-        unnamed: false,
-        id: v.id ?? null,
-      };
-    } else {
-      const jobId = jobIdInput.trim() || v.id || "";
-      if (!jobId) return;
-      nVerts[nodeId] = {
-        ...v,
-        display_name: jobId,
-        open_role: true,
-        unnamed: true,
-        id: jobId,
-      };
-    }
-
+        display_name: displayName,
+        role: role || v.role,
+        grade: grade || null,
+        geo: newGeo,
+        dept: dept || null,
+        open_role: newIsOpen,
+        unnamed: newIsOpen,
+        id: jobId || v.id || null,
+        transition,
+      },
+    };
     onSave({ ...data, vertices: nVerts });
   };
 
   // ── Menu
   if (op === "menu") {
+    const band = v.grade && v.geo && data.compMatrix
+      ? (data.compMatrix[v.grade]?.[v.geo] ?? null)
+      : null;
     return (
       <div className={styles.modalOverlay}>
         <div className={styles.modal}>
@@ -499,6 +608,46 @@ function EditModal({
           <p className={styles.modalNote}>
             {v.role} · {isOpen ? "○ Open Role" : "● Filled Role"} · {displayId}
           </p>
+          {(v.geo || v.transition) && (
+            <div className={styles.transitionRecord}>
+              {v.geo && (
+                <div className={styles.transitionRow}>
+                  <span className={styles.transitionLabel}>Location</span>
+                  <span className={styles.transitionDetail}>{v.geo}</span>
+                  {band && (
+                    <span className={styles.transitionBand}>
+                      {band.currency} {band.min.toLocaleString()}–{band.max.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
+              {v.transition && (
+                <div className={styles.transitionRow}>
+                  <span className={styles.transitionLabel}>Last change</span>
+                  <span className={styles.transitionDetail}>
+                    {v.transition.from_open ? "○ Open" : "● Filled"} → {v.transition.to_open ? "○ Open" : "● Filled"}
+                    {v.transition.from_geo !== v.transition.to_geo && (
+                      <> · {v.transition.from_geo || "—"} → {v.transition.to_geo || "—"}</>
+                    )}
+                  </span>
+                  {(v.transition.from_band_min != null || v.transition.to_band_min != null) && (
+                    <span className={styles.transitionBand}>
+                      {v.transition.from_band_min != null
+                        ? `${v.transition.from_currency} ${v.transition.from_band_min.toLocaleString()}–${v.transition.from_band_max?.toLocaleString()}`
+                        : "—"}
+                      {" → "}
+                      {v.transition.to_band_min != null
+                        ? `${v.transition.to_currency} ${v.transition.to_band_min.toLocaleString()}–${v.transition.to_band_max?.toLocaleString()}`
+                        : "—"}
+                    </span>
+                  )}
+                  <span className={styles.transitionDate}>
+                    {new Date(v.transition.changed_at).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
           <div className={styles.editMenu}>
             <button
               className={styles.editMenuItem}
@@ -654,69 +803,21 @@ function EditModal({
   // ── Toggle status
   if (op === "toggle-status") {
     return (
-      <div className={styles.modalOverlay}>
-        <div className={styles.modal}>
-          <h3 className={styles.modalTitle}>
-            {isOpen ? "Mark as filled" : "Mark as open role"}
-          </h3>
-          <p className={styles.modalParent}>{v.display_name}</p>
-          {isOpen ? (
-            <>
-              <p className={styles.modalNote}>
-                This position will be marked as <b>filled</b>. Please enter the
-                employee name to complete the update.
-              </p>
-              <label className={styles.fieldLabel}>
-                Employee name <span className={styles.hint}>(required)</span>
-              </label>
-              <input
-                className={styles.fieldInput}
-                placeholder="Employee name"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                autoFocus
-              />
-            </>
-          ) : (
-            <>
-              <p className={styles.modalNote}>
-                This position will be marked as <b>open (vacant)</b>.
-              </p>
-              <label className={styles.fieldLabel}>
-                Job ID{" "}
-                <span className={styles.hint}>(required if none exists)</span>
-              </label>
-              <input
-                className={styles.fieldInput}
-                placeholder="Job ID"
-                value={jobIdInput}
-                onChange={(e) => setJobIdInput(e.target.value)}
-                autoFocus={!v.id}
-              />
-              {!v.id && (
-                <p className={styles.modalWarn}>
-                  A Job ID is required for open roles so the position remains
-                  traceable.
-                </p>
-              )}
-            </>
-          )}
-          <div className={styles.modalActions}>
-            <button className={styles.cancelBtn} onClick={() => setOp("menu")}>
-              Back
-            </button>
-            <button
-              className={styles.confirmBtn}
-              disabled={
-                isOpen ? !nameInput.trim() : !jobIdInput.trim() && !v.id
-              }
-              onClick={handleToggleStatus}
-            >
-              {isOpen ? "● Mark Filled" : "○ Mark Open"}
-            </button>
-          </div>
-        </div>
-      </div>
+      <NodeFormModal
+        mode="edit-status"
+        initialData={{
+          isOpen,
+          name: isOpen ? "" : v.display_name,
+          jobId: v.id || "",
+          role: v.role || "",
+          grade: v.grade || "",
+          geo: v.geo || "",
+          dept: v.dept || "",
+        }}
+        compMatrix={data.compMatrix}
+        onConfirm={handleToggleStatus}
+        onCancel={() => setOp("menu")}
+      />
     );
   }
 
@@ -728,6 +829,7 @@ function Inner({ data, onDataChange }: Props) {
   const { vertices: V, metrics: m, edges: dataEdges } = data;
   const rf = useReactFlow();
   const mounted = useRef(false);
+  const userCreatedIds = useRef(new Set<string>());
 
   // Undo / Redo
   const [history, setHistory] = useState<DashboardData[]>([data]);
@@ -770,16 +872,45 @@ function Inner({ data, onDataChange }: Props) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── View navigation (3-layer windowed view) ──
+  const [viewRoot, setViewRoot] = useState<string>(m.basic.roots[0] || "");
+  const [viewHistory, setViewHistory] = useState<string[]>([]);
+  const [localCollapsed, setLocalCollapsed] = useState<Set<string>>(new Set());
+
+  // Reset viewRoot if it was deleted
+  useEffect(() => {
+    if (viewRoot && !data.vertices[viewRoot]) {
+      setViewRoot(data.metrics.basic.roots[0] || "");
+      setViewHistory([]);
+      setLocalCollapsed(new Set());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleDrillDown = useCallback((id: string) => {
+    setViewHistory((h) => [...h, viewRoot]);
+    setViewRoot(id);
+    setLocalCollapsed(new Set());
+  }, [viewRoot]);
+
+  const handleBack = useCallback(() => {
+    setViewHistory((h) => {
+      const prev = h[h.length - 1];
+      if (prev !== undefined) setViewRoot(prev);
+      return h.slice(0, -1);
+    });
+    setLocalCollapsed(new Set());
+  }, []);
+
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const onDel = useCallback((id: string) => setDeletingId(id), []);
   const onAddN = useCallback((id: string) => setAddingTo(id), []);
   const onEditN = useCallback((id: string) => setEditingId(id), []);
   const onToggle = useCallback((id: string) => {
-    setCollapsed((p) => {
+    setLocalCollapsed((p) => {
       const n = new Set(p);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -787,8 +918,9 @@ function Inner({ data, onDataChange }: Props) {
   }, []);
 
   const graph = useMemo(
-    () => buildGraph(data, collapsed, onDel, onAddN, onEditN, onToggle),
-    [data, collapsed, onDel, onAddN, onEditN, onToggle],
+    () => buildGraph(data, viewRoot, localCollapsed, onDel, onAddN, onEditN, onToggle, handleDrillDown, userCreatedIds.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, viewRoot, localCollapsed, onDel, onAddN, onEditN, onToggle, handleDrillDown],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
@@ -809,19 +941,19 @@ function Inner({ data, onDataChange }: Props) {
 
   // Add
   const doAdd = useCallback(
-    (name: string, role: string, jobId: string) => {
+    ({ name, jobId, role, grade, geo, dept, isOpen }: NodePayload) => {
       const pid = addingTo!;
       const nid = `e${Date.now()}`;
-      userCreatedIds.add(nid);
-      const isOpen = !name && !!jobId;
-      const displayName = name || jobId;
+      userCreatedIds.current.add(nid);
+      const displayName = isOpen ? (jobId || "Open Role") : name;
       const nv: NormalizedVertex = {
         display_name: displayName,
-        role,
+        role: role || "New Role",
         id: jobId || null,
-        grade: null,
+        grade: grade || null,
+        geo: geo || null,
         unnamed: isOpen,
-        dept: null,
+        dept: dept || null,
         open_role: isOpen,
       };
       const ne: RawEdge = {
@@ -880,6 +1012,26 @@ function Inner({ data, onDataChange }: Props) {
 
   return (
     <div style={{ animation: "fade 0.4s ease" }}>
+      {viewHistory.length > 0 && (
+        <div className={styles.viewBar}>
+          <button className={styles.viewBackBtn} onClick={handleBack}>
+            ← Back to {V[viewHistory[viewHistory.length - 1]]?.display_name ?? "Root"}
+          </button>
+          <div className={styles.viewPath}>
+            {[...viewHistory, viewRoot].map((id, i) => (
+              <span key={id}>
+                {i > 0 && <span className={styles.viewSep}> › </span>}
+                <span className={i === viewHistory.length ? styles.viewPathCurrent : styles.viewPathStep}>
+                  {V[id]?.display_name ?? id}
+                  {m.depth[id] !== undefined && (
+                    <span className={styles.viewDepthTag}>L{m.depth[id]}</span>
+                  )}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className={styles.toolbar}>
         <div className={styles.legend}>
           <span>
@@ -945,7 +1097,7 @@ function Inner({ data, onDataChange }: Props) {
           </button>
           <button
             className={styles.fitBtn}
-            onClick={() => setCollapsed(new Set())}
+            onClick={() => setLocalCollapsed(new Set())}
           >
             ↕ Expand
           </button>
@@ -985,8 +1137,10 @@ function Inner({ data, onDataChange }: Props) {
       </div>
 
       {addingTo && (
-        <AddModal
+        <NodeFormModal
+          mode="add"
           parentName={V[addingTo]?.display_name || addingTo}
+          compMatrix={data.compMatrix}
           onConfirm={doAdd}
           onCancel={() => setAddingTo(null)}
         />
@@ -1006,6 +1160,7 @@ function Inner({ data, onDataChange }: Props) {
         <EditModal
           nodeId={editingId}
           data={data}
+          userCreatedIds={userCreatedIds.current}
           onSave={doEditSave}
           onCancel={() => setEditingId(null)}
         />
