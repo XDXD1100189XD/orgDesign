@@ -17,6 +17,17 @@ interface MatrixRow {
   currency: string;
 }
 
+function exportMatrixCsv(rows: MatrixRow[]) {
+  const head = ['Grade', 'Geography', 'Min', 'Max', 'Currency'].join(',');
+  const body = rows.map(r =>
+    [`"${r.grade}"`, `"${r.geo}"`, r.min, r.max, `"${r.currency}"`].join(',')
+  ).join('\n');
+  const blob = new Blob([head + '\n' + body], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), { href: url, download: 'comp-bands.csv' }).click();
+  URL.revokeObjectURL(url);
+}
+
 function flattenMatrix(m: CompMatrix): MatrixRow[] {
   const rows: MatrixRow[] = [];
   Object.entries(m).forEach(([grade, geos]) => {
@@ -92,9 +103,16 @@ export default function CompMatrixView({ data, onDataChange }: Props) {
             transition records — those are snapshots of the band at the time of change.
           </p>
         </div>
-        <span className={styles.count}>
-          {rows.length} {rows.length === 1 ? "band" : "bands"}
-        </span>
+        <div className={styles.headerActions}>
+          <span className={styles.count}>
+            {rows.length} {rows.length === 1 ? "band" : "bands"}
+          </span>
+          {rows.length > 0 && (
+            <button className={styles.exportBtn} onClick={() => exportMatrixCsv(rows)}>
+              ↓ Export CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {rows.length > 0 ? (

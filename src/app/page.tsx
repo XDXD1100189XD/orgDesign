@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import type { DashboardData } from "@/lib/types";
+import { useState, useRef, useCallback, useEffect } from "react";
+import type { DashboardData, AIChartRequest } from "@/lib/types";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
 import UploadModal from "@/components/upload/UploadModal";
@@ -12,6 +12,13 @@ import HierarchyView from "@/components/dashboard/HierarchyView";
 import DataReadinessView from "@/components/dashboard/DataReadinessView";
 import AdvancedAnalyticsView from "@/components/dashboard/AdvancedAnalyticsView";
 import CompMatrixView from "@/components/dashboard/CompMatrixView";
+import ChangeManagementDrawer from "@/components/dashboard/ChangeManagementDrawer";
+import {
+  createChangeRecord,
+  cloneSnapshot,
+  type ChangeRecord,
+  type ChangeScope,
+} from "@/lib/changeManagement";
 import dynamic from "next/dynamic";
 import styles from "./page.module.css";
 
@@ -25,7 +32,37 @@ const AnalyticsStudioView = dynamic(
   { ssr: false }
 );
 
-type Tab = "summary" | "tree" | "table" | "readiness" | "advanced" | "studio" | "comp";
+const AIAssistantView = dynamic(
+  () => import("@/components/dashboard/AIAssistantView"),
+  { ssr: false }
+);
+
+// ── Session persistence ──────────────────────────────────────────────────────
+
+const SESSION_KEY = 'org-dashboard-session';
+const CHANGE_LOG_VERSION = 3;
+
+interface SessionPayload {
+  data: DashboardData;
+  toBeData: DashboardData | null;
+  columnMapping: ColumnMapping | null;
+  excelHeaders: string[];
+  excelRows: ExcelRow[] | null;
+  studioMutatedRows: ExcelRow[] | null;
+  hadExcelFile: boolean;
+  changeLogVersion?: number;
+  changeLog?: ChangeRecord[];
+}
+
+function saveSession(payload: SessionPayload) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+  } catch { /* storage full — silently skip */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Tab = "summary" | "tree" | "table" | "readiness" | "advanced" | "studio" | "comp" | "ai";
 type StateSlice = "as-is" | "to-be";
 
 // ── Target state metric computation ──
@@ -47,7 +84,10 @@ function computeStateMetrics(d: DashboardData): StateMetrics {
   if (d.compMatrix) {
     let cost = 0; let hasAny = false;
     for (const v of Object.values(d.vertices)) {
-      const band = v.grade && v.geo ? d.compMatrix[v.grade]?.[v.geo] : null;
+      if (!v.grade) continue;
+      const gradeMatrix = d.compMatrix[v.grade];
+      if (!gradeMatrix) continue;
+      const band = (v.geo ? gradeMatrix[v.geo] : null) ?? Object.values(gradeMatrix)[0] ?? null;
       if (band) { cost += (band.min + band.max) / 2; hasAny = true; }
     }
     if (hasAny) totalCost = cost;
@@ -77,6 +117,7 @@ const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "tree",     num: "04", label: "Hierarchy" },
   { key: "table",    num: "05", label: "Employees" },
   { key: "comp",     num: "06", label: "Comp Setup" },
+  { key: "ai",       num: "08", label: "AI Assistant" },
 ];
 const READINESS_TAB = { key: "readiness" as Tab, num: "07", label: "Data Readiness" };
 
@@ -94,59 +135,332 @@ export default function HomePage() {
   const [toBeFile, setToBeFile] = useState<File | null>(null);
   const [showToBeUpload, setShowToBeUpload] = useState(false);
 
+  // ── Studio-mutated rows (shared with Employees tab and AI assistant) ──
+  const [studioMutatedRows, setStudioMutatedRows] = useState<import("@/lib/parseExcel").ExcelRow[] | null>(null);
+
+  // ── AI chart request (set by AI assistant, consumed by Analytics Studio) ──
+  const [pendingChartRequest, setPendingChartRequest] = useState<AIChartRequest | null>(null);
+
+  // Change management state
+  const [changeLog, setChangeLog] = useState<ChangeRecord[]>([]);
+  const [showChangeDrawer, setShowChangeDrawer] = useState(false);
+
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("summary");
   const [downloading] = useState(false);
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
+  const [tableJumpId, setTableJumpId] = useState<string | null>(null);
+  const [showExcelPrompt, setShowExcelPrompt] = useState(false);
+  const [hadExcelFile, setHadExcelFile] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
+
+  // ── Restore session on mount ──
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      const s: Partial<SessionPayload> = JSON.parse(raw);
+      if (s.data)          setData(s.data);
+      if (s.excelHeaders)  setExcelHeaders(s.excelHeaders);
+      if (s.excelRows)     setExcelRows(s.excelRows);
+      if (s.studioMutatedRows) setStudioMutatedRows(s.studioMutatedRows);
+      if (s.columnMapping) setColumnMapping(s.columnMapping);
+      if (s.toBeData)      setToBeData(s.toBeData);
+      if (s.changeLogVersion === CHANGE_LOG_VERSION && s.changeLog) setChangeLog(s.changeLog);
+      if (s.hadExcelFile) {
+        setHadExcelFile(true);
+        setShowExcelPrompt(!s.excelRows?.length);
+      }
+    } catch { /* corrupted storage — ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Persist session whenever data changes ──
+  useEffect(() => {
+    if (!data) return;
+    saveSession({
+      data,
+      toBeData,
+      columnMapping,
+      excelHeaders,
+      excelRows,
+      studioMutatedRows,
+      hadExcelFile: hadExcelFile || !!excelFile || !!excelRows,
+      changeLogVersion: CHANGE_LOG_VERSION,
+      changeLog,
+    });
+  }, [data, toBeData, columnMapping, excelHeaders, excelRows, studioMutatedRows, excelFile, hadExcelFile, changeLog]);
 
   const TABS = excelFile ? [...BASE_TABS, READINESS_TAB] : BASE_TABS;
 
-  // ── As-Is handlers ──
-  const handleDataReady = useCallback((d: DashboardData) => {
-    setData(d);
-    setActiveTab("summary");
+  const appendChange = useCallback((change: ChangeRecord) => {
+    setChangeLog((prev) => [...prev, change]);
   }, []);
 
-  const handleExcelFile = useCallback((f: File) => setExcelFile(f), []);
+  const currentSnapshot = useCallback(() => ({
+    data,
+    toBeData,
+    columnMapping,
+    excelRows,
+    studioRows: studioMutatedRows,
+  }), [columnMapping, data, excelRows, studioMutatedRows, toBeData]);
+
+  const canBuildFromRows = useCallback((rows: ExcelRow[]) => {
+    if (!columnMapping || rows.length === 0) return false;
+    const headers = new Set(Object.keys(rows[0]));
+    return ["Employee ID", "Manager ID"].every((field) => {
+      const mapped = columnMapping[field as keyof ColumnMapping]?.column;
+      return !!mapped && headers.has(mapped);
+    });
+  }, [columnMapping]);
+
+  // ── As-Is handlers ──
+  const handleDataReady = useCallback((d: DashboardData) => {
+    appendChange(createChangeRecord({
+      scope: "as-is",
+      action: data ? "upload" : "initialize",
+      before: currentSnapshot(),
+      after: { data: d, toBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+      details: data ? undefined : ["Baseline snapshot captured from the uploaded org data."],
+    }));
+    setData(d);
+    setActiveTab("summary");
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+
+  const handleExcelFile = useCallback((f: File) => {
+    setExcelFile(f);
+    setHadExcelFile(true);
+    setStudioMutatedRows(null);
+    setShowExcelPrompt(false);
+  }, []);
 
   const handleExcelParsed = useCallback((rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => {
     setExcelRows(rows);
     setExcelHeaders(headers);
+    appendChange(createChangeRecord({
+      scope: "mapping",
+      action: "mapping",
+      before: currentSnapshot(),
+      after: { data, toBeData, columnMapping: mapping, excelRows: rows, studioRows: studioMutatedRows },
+    }));
     setColumnMapping(mapping);
-  }, []);
+  }, [appendChange, currentSnapshot, data, studioMutatedRows, toBeData]);
 
   const handleRemappingConfirm = useCallback(async (newMapping: ColumnMapping) => {
     setShowRemapping(false);
     if (!excelRows) return;
     const { buildHierarchyFromMapping } = await import("@/lib/buildHierarchy");
-    setData(buildHierarchyFromMapping(excelRows, newMapping));
+    const nextData = buildHierarchyFromMapping(excelRows, newMapping);
+    appendChange(createChangeRecord({
+      scope: "mapping",
+      action: "mapping",
+      before: currentSnapshot(),
+      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows, studioRows: studioMutatedRows },
+    }));
+    setData(nextData);
     setColumnMapping(newMapping);
-  }, [excelRows]);
+  }, [appendChange, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
 
-  const handleDataChange = useCallback((d: DashboardData) => setData(d), []);
-  const handleToBeDataChange = useCallback((d: DashboardData) => setToBeData(d), []);
+  const handleDataChange = useCallback((d: DashboardData) => {
+    appendChange(createChangeRecord({
+      scope: "as-is",
+      action: "hierarchy",
+      before: currentSnapshot(),
+      after: { data: d, toBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
+    setData(d);
+  }, [appendChange, columnMapping, currentSnapshot, excelRows, studioMutatedRows, toBeData]);
+
+  const handleToBeDataChange = useCallback((d: DashboardData) => {
+    appendChange(createChangeRecord({
+      scope: "to-be",
+      action: "hierarchy",
+      before: currentSnapshot(),
+      after: { data, toBeData: d, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
+    setToBeData(d);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
+  const handleCompDataChange = useCallback((d: DashboardData) => {
+    const nextToBeData = toBeData ? { ...toBeData, compMatrix: d.compMatrix } : toBeData;
+    appendChange(createChangeRecord({
+      scope: "compensation",
+      action: "compensation",
+      title: "Compensation setup updated",
+      summary: nextToBeData ? "Compensation bands were updated and synced into the target state." : "Compensation bands were updated.",
+      details: ["As-Is compensation setup changed.", ...(nextToBeData ? ["To-Be compensation setup now uses the same band matrix."] : [])],
+      before: currentSnapshot(),
+      after: { data: d, toBeData: nextToBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
+    setData(d);
+    setToBeData(nextToBeData);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+
+  const handleSharedRowsChange = useCallback(async (
+    rows: ExcelRow[] | null,
+    meta?: { source?: string; action?: string; query?: string; affected?: number; label?: string; target?: StateSlice },
+  ) => {
+    const target = meta?.target ?? (activeTab === "table" ? tableSlice : studioSlice);
+    const before = currentSnapshot();
+    let nextData = data;
+    let nextToBeData = toBeData;
+    const nextStudioRows = rows;
+
+    if (rows && columnMapping && canBuildFromRows(rows)) {
+      const { buildHierarchyFromMapping } = await import("@/lib/buildHierarchy");
+      const rebuilt = buildHierarchyFromMapping(rows, columnMapping);
+      if (target === "as-is") nextData = rebuilt;
+      if (target === "to-be") nextToBeData = rebuilt;
+    }
+
+    const isReset = rows === null;
+    const sourceLabel =
+      meta?.source === "employees-table" ? "Employees table"
+        : meta?.source === "analytics-sql" ? "Analytics SQL"
+          : meta?.source === "analytics-reset" ? "Analytics Studio"
+            : meta?.source === "ai-sql" ? "Agentic AI SQL"
+              : "Employee rows";
+
+    appendChange(createChangeRecord({
+      scope: "rows",
+      action: "rows",
+      title: isReset ? `${sourceLabel} reset` : `${sourceLabel} updated ${target === "as-is" ? "As-Is" : "To-Be"} rows`,
+      summary: isReset
+        ? "The active row layer was reset to the loaded source data."
+        : `${(rows?.length ?? 0).toLocaleString()} rows changed${meta?.affected != null ? `, ${meta.affected.toLocaleString()} affected by the operation` : ""}.`,
+      details: [
+        meta?.label ?? (meta?.query ? `SQL: ${meta.query}` : "Rows changed through an editable surface."),
+        rows && columnMapping && canBuildFromRows(rows)
+          ? `The ${target === "as-is" ? "As-Is" : "To-Be"} hierarchy was rebuilt from these rows.`
+          : "Stored as row-layer changes because the current field mapping could not rebuild hierarchy data.",
+      ],
+      before,
+      after: {
+        data: nextData,
+        toBeData: nextToBeData,
+        columnMapping,
+        excelRows,
+        studioRows: nextStudioRows,
+      },
+    }));
+
+    setStudioMutatedRows(nextStudioRows);
+    if (nextData !== data) setData(nextData);
+    if (nextToBeData !== toBeData) setToBeData(nextToBeData);
+  }, [activeTab, appendChange, canBuildFromRows, columnMapping, currentSnapshot, data, excelRows, studioSlice, tableSlice, toBeData]);
+
+  const handleRowMutation = useCallback(async (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => {
+    if (!columnMapping) return;
+    const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
+    const nextAsIs = (target === 'as-is' || target === 'both') ? buildHierarchyFromMapping(rows, columnMapping) : data;
+    const nextToBe = (target === 'to-be' || target === 'both') ? buildHierarchyFromMapping(rows, columnMapping) : toBeData;
+    const scope: ChangeScope = target === 'as-is' ? 'as-is' : target === 'to-be' ? 'to-be' : 'session';
+    appendChange(createChangeRecord({
+      scope,
+      action: "rows",
+      title: `Rows applied to ${target === "both" ? "both states" : target === "as-is" ? "As-Is" : "To-Be"}`,
+      summary: `${rows.length.toLocaleString()} source rows rebuilt into hierarchy data.`,
+      details: ["Dashboard state was rebuilt from the current row set and field mapping."],
+      before: currentSnapshot(),
+      after: { data: nextAsIs, toBeData: nextToBe, columnMapping, excelRows, studioRows: rows },
+    }));
+    setStudioMutatedRows(rows);
+    if (target === 'as-is' || target === 'both') {
+      setExcelRows(rows);
+      setData(nextAsIs);
+    }
+    if (target === 'to-be' || target === 'both') {
+      setToBeData(nextToBe);
+    }
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, toBeData]);
+
+  const handleFieldMapping = useCallback(async (field: string, column: string, newRows?: ExcelRow[]) => {
+    if (!columnMapping) return;
+    const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
+    const newMapping: ColumnMapping = {
+      ...columnMapping,
+      [field as import('@/lib/fieldDictionary').CanonicalField]: { column, confidence: 1, isManual: true },
+    };
+    setColumnMapping(newMapping);
+    const rows = newRows ?? excelRows;
+    if (!rows) return;
+    if (newRows) {
+      setExcelRows(newRows);
+      setStudioMutatedRows(newRows);
+      // Add the new derived column to excelHeaders if it isn't already there
+      setExcelHeaders(prev => prev.includes(column) ? prev : [...prev, column]);
+    }
+    const nextData = buildHierarchyFromMapping(rows, newMapping);
+    appendChange(createChangeRecord({
+      scope: "mapping",
+      action: "mapping",
+      before: currentSnapshot(),
+      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows: newRows ?? excelRows, studioRows: newRows ?? studioMutatedRows },
+    }));
+    setData(nextData);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
 
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
     if (!data) return;
-    setToBeData(JSON.parse(JSON.stringify(data)));
+    const nextToBe = JSON.parse(JSON.stringify(data));
+    appendChange(createChangeRecord({
+      scope: "to-be",
+      action: "copy",
+      title: "To-Be copied from As-Is",
+      summary: "Target state initialized from the current organization snapshot.",
+      details: ["Use this as a controlled baseline before target-state edits."],
+      before: currentSnapshot(),
+      after: { data, toBeData: nextToBe, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
+    setToBeData(nextToBe);
     setToBeFile(excelFile);
-  }, [data, excelFile]);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelFile, excelRows, studioMutatedRows]);
 
   const handleToBeUploaded = useCallback((
     d: DashboardData,
     file: File,
   ) => {
+    appendChange(createChangeRecord({
+      scope: "to-be",
+      action: "upload",
+      title: "To-Be file uploaded",
+      summary: `${file.name} loaded as target-state data.`,
+      before: currentSnapshot(),
+      after: { data, toBeData: d, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
     setToBeData(d);
     setToBeFile(file);
     setShowToBeUpload(false);
-  }, []);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
 
   const handleResetToBe = useCallback(() => {
+    appendChange(createChangeRecord({
+      scope: "to-be",
+      action: "reset",
+      before: currentSnapshot(),
+      after: { data, toBeData: null, columnMapping, excelRows, studioRows: studioMutatedRows },
+    }));
     setToBeData(null);
     setToBeFile(null);
+  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
+
+  const handleRevertChange = useCallback((change: ChangeRecord) => {
+    const before = cloneSnapshot(change.before);
+
+    if ("data" in before) setData(before.data ?? null);
+    if ("toBeData" in before) {
+      setToBeData(before.toBeData ?? null);
+      if (!before.toBeData) setToBeFile(null);
+    }
+    if ("columnMapping" in before) setColumnMapping(before.columnMapping ?? null);
+    if ("excelRows" in before) setExcelRows(before.excelRows ?? null);
+    if ("studioRows" in before) setStudioMutatedRows(before.studioRows ?? null);
+
+    setChangeLog((prev) => {
+      const index = prev.findIndex((item) => item.id === change.id);
+      return index >= 0 ? prev.slice(0, index) : prev;
+    });
   }, []);
 
   const handleDownload = async () => { return; };
@@ -183,6 +497,13 @@ export default function HomePage() {
           onCancel={() => setShowToBeUpload(false)}
         />
       )}
+      {showChangeDrawer && (
+        <ChangeManagementDrawer
+          changes={changeLog}
+          onClose={() => setShowChangeDrawer(false)}
+          onRevert={handleRevertChange}
+        />
+      )}
 
       <header className={styles.header}>
         <div className={styles.brandmark}>
@@ -193,6 +514,13 @@ export default function HomePage() {
           <div className={styles.crumbs}>
             Portfolio <b>· Item Vista</b>
           </div>
+          <button
+            className={styles.changeLogBtn}
+            onClick={() => setShowChangeDrawer(true)}
+          >
+            Change Log
+            {changeLog.length > 0 && <span>{changeLog.length}</span>}
+          </button>
           <button
             className={`${styles.downloadBtn} ${downloading ? styles.spinning : ""}`}
             onClick={handleDownload}
@@ -253,6 +581,39 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* ── Excel re-upload banner (shown after session restore) ── */}
+      {showExcelPrompt && !excelFile && (
+        <div className={styles.excelPromptBanner}>
+          <span className={styles.excelPromptText}>
+            Re-upload your Excel file to restore Data Readiness file checks.
+            Dashboard state, rows, and the change log were restored from this browser session.
+          </span>
+          <label className={styles.excelPromptBtn}>
+            Re-upload Excel
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                setExcelFile(f);
+                setShowExcelPrompt(false);
+                try {
+                  const { parseExcelFile } = await import('@/lib/parseExcel');
+                  const rows = await parseExcelFile(f);
+                  setExcelRows(rows);
+                  setExcelHeaders(Object.keys(rows[0] ?? {}));
+                } catch { /* file still works for DataReadiness/Studio */ }
+              }}
+            />
+          </label>
+          <button className={styles.excelPromptDismiss} onClick={() => setShowExcelPrompt(false)}>
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ── 01 Summary — always As-Is ── */}
       <div data-view="summary" style={{ display: activeTab === "summary" ? "block" : "none" }}>
         <SummaryView data={data} />
@@ -289,7 +650,13 @@ export default function HomePage() {
             </span>
           )}
         </div>
-        <AnalyticsStudioView file={studioFile} data={studioData} />
+        <AnalyticsStudioView
+          file={studioFile}
+          data={studioData}
+          rows={studioMutatedRows ?? excelRows ?? undefined}
+          onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
+          externalChartRequest={pendingChartRequest}
+        />
       </div>
 
       {/* ── 04 Hierarchy — both panels side-by-side ── */}
@@ -365,20 +732,48 @@ export default function HomePage() {
             </span>
           )}
         </div>
-        <TableView data={tableData} file={tableFile} />
+        <TableView
+          data={tableData}
+          file={tableFile}
+          jumpToId={tableJumpId}
+          onJumpComplete={() => setTableJumpId(null)}
+          externalRows={studioMutatedRows ?? excelRows}
+          onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: tableSlice })}
+        />
       </div>
 
       {/* ── 06 Comp Setup — shared ── */}
       <div data-view="comp" style={{ display: activeTab === "comp" ? "block" : "none" }}>
-        <CompMatrixView data={data} onDataChange={handleDataChange} />
+        <CompMatrixView data={data} onDataChange={handleCompDataChange} />
       </div>
 
       {/* ── 07 Data Readiness ── */}
       {excelFile && (
         <div data-view="readiness" style={{ display: activeTab === "readiness" ? "block" : "none" }}>
-          <DataReadinessView file={excelFile} />
+          <DataReadinessView
+            file={excelFile}
+            onNavigateToEmployee={(rowId) => {
+              setActiveTab("table");
+              setTableJumpId(rowId);
+            }}
+          />
         </div>
       )}
+
+      {/* ── 08 AI Assistant ── */}
+      <div data-view="ai" style={{ display: activeTab === "ai" ? "block" : "none" }}>
+        <AIAssistantView
+          data={data}
+          rows={studioMutatedRows ?? excelRows ?? []}
+          onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "as-is" })}
+          onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
+          onDataChange={handleCompDataChange}
+          toBeData={toBeData}
+          onRowMutation={handleRowMutation}
+          onFieldMapping={handleFieldMapping}
+          columnMapping={columnMapping}
+        />
+      </div>
 
       <footer className={styles.footer}>
         <div>Confidential · Internal Analytics · 2026</div>

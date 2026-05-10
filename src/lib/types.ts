@@ -157,6 +157,22 @@ export interface DashboardData {
   compMatrix?: CompMatrix;
 }
 
+// ── AI chart request (shared between AIAssistantView and AnalyticsStudioView) ──
+
+export type AggFn     = 'sum' | 'count' | 'avg' | 'min' | 'max';
+export type ChartType = 'bar' | 'stackedBar' | 'line' | 'area' | 'pie' | 'radar';
+
+export interface AIChartRequest {
+  rowField:    string;
+  colField?:   string;
+  valueField?: string;
+  aggFn:       AggFn;
+  chartType:   ChartType;
+  title?:      string;
+  sqlQuery?:        string;
+  precomputedRows?: Record<string, unknown>[];
+}
+
 export interface TableRow {
   id: string;
   name: string;

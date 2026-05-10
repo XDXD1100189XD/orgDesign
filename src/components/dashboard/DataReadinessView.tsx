@@ -18,25 +18,24 @@ interface ColumnReport {
 
 interface Props {
   file: File;
+  onNavigateToEmployee?: (rowId: string) => void;
 }
 
 function isMissing(v: string | number | boolean | null | undefined): boolean {
   return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
 }
 
-export default function DataReadinessView({ file }: Props) {
+export default function DataReadinessView({ file, onNavigateToEmployee }: Props) {
   const [columns, setColumns] = useState<ColumnReport[]>([]);
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
-  const [reviewRow, setReviewRow] = useState<MissingRow | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setColumns([]);
-    setReviewRow(null);
     setExpandedCol(null);
 
     parseExcelFile(file)
@@ -192,7 +191,6 @@ export default function DataReadinessView({ file }: Props) {
                         className={`${styles.expandBtn} ${expandedCol === col.name ? styles.expandBtnActive : ''}`}
                         onClick={() => {
                           setExpandedCol(expandedCol === col.name ? null : col.name);
-                          setReviewRow(null);
                         }}
                       >
                         {expandedCol === col.name ? '▲ Hide' : '▼ View rows'}
@@ -206,10 +204,8 @@ export default function DataReadinessView({ file }: Props) {
                         {col.totalMissing} row{col.totalMissing !== 1 ? 's' : ''} missing <em>{col.name}</em>
                       </div>
                       <div className={styles.rowsList}>
-                        {col.missingRows.map((mr) => {
-                          const isActive = reviewRow?.rowIndex === mr.rowIndex;
-                          return (
-                            <div key={mr.rowIndex} className={`${styles.rowEntry} ${isActive ? styles.rowEntryActive : ''}`}>
+                        {col.missingRows.map((mr) => (
+                            <div key={mr.rowIndex} className={styles.rowEntry}>
                               <span className={styles.rowNum}>Row {mr.rowIndex}</span>
                               <span className={styles.rowGaps}>
                                 {mr.missingColumns.map((mc) => (
@@ -217,14 +213,13 @@ export default function DataReadinessView({ file }: Props) {
                                 ))}
                               </span>
                               <button
-                                className={`${styles.reviewBtn} ${isActive ? styles.reviewBtnClose : ''}`}
-                                onClick={() => setReviewRow(isActive ? null : mr)}
+                                className={styles.reviewBtn}
+                                onClick={() => onNavigateToEmployee?.(String(mr.rowIndex - 2))}
                               >
-                                {isActive ? 'Close ×' : 'Review →'}
+                                Review →
                               </button>
                             </div>
-                          );
-                        })}
+                          ))}
                       </div>
                     </div>
                   )}
@@ -247,33 +242,6 @@ export default function DataReadinessView({ file }: Props) {
         </div>
       )}
 
-      {/* ── Review drawer ── */}
-      {reviewRow && (
-        <div className={styles.drawer}>
-          <div className={styles.drawerHeader}>
-            <div className={styles.drawerTitle}>
-              <span className={styles.drawerRowBadge}>Row {reviewRow.rowIndex}</span>
-              <span>Full record · {reviewRow.missingColumns.length} field{reviewRow.missingColumns.length !== 1 ? 's' : ''} missing</span>
-            </div>
-            <button className={styles.drawerClose} onClick={() => setReviewRow(null)}>×</button>
-          </div>
-          <div className={styles.drawerGrid}>
-            {Object.entries(reviewRow.rowData).map(([k, v]) => {
-              const missing = reviewRow.missingColumns.includes(k);
-              return (
-                <div key={k} className={`${styles.drawerCell} ${missing ? styles.drawerCellMissing : ''}`}>
-                  <div className={styles.drawerKey}>{k}</div>
-                  <div className={styles.drawerVal}>
-                    {missing
-                      ? <span className={styles.missingLabel}>— missing —</span>
-                      : String(v ?? '')}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -14,14 +14,14 @@ import {
 } from 'recharts';
 import { parseExcelFile } from '@/lib/parseExcel';
 import type { ExcelRow } from '@/lib/parseExcel';
-import type { DashboardData } from '@/lib/types';
+import type { DashboardData, AIChartRequest, AggFn as SharedAggFn, ChartType as SharedChartType } from '@/lib/types';
 import { fmtNum } from '@/lib/costSchema';
 import styles from './AnalyticsStudioView.module.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type AggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
-type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'radar';
+type AggFn    = SharedAggFn;
+type ChartType = SharedChartType;
 
 interface PivotConfig {
   rowField: string | null;
@@ -29,6 +29,7 @@ interface PivotConfig {
   valueField: string | null;
   aggFn: AggFn;
   chartType: ChartType;
+  palette: string[];
 }
 
 interface PivotRow {
@@ -57,11 +58,21 @@ type SqlResult =
 interface Props {
   file: File | null;
   data?: DashboardData | null;
+  rows?: ExcelRow[];
+  onRowsChange?: (rows: ExcelRow[] | null, meta?: { source: 'analytics-sql' | 'analytics-reset'; query?: string; affected?: number }) => void;
+  externalChartRequest?: AIChartRequest | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CHART_COLORS = ['#006b6b', '#c0a800', '#5b8a8a', '#b05500', '#3d7a8b', '#8b3d7a', '#3d8b4a', '#8b3d3d'];
+
+const PALETTES: { label: string; colors: string[] }[] = [
+  { label: 'Default', colors: ['#006b6b','#c0a800','#5b8a8a','#b05500','#3d7a8b','#8b3d7a','#3d8b4a','#8b3d3d'] },
+  { label: 'Warm',    colors: ['#c0392b','#e67e22','#f1c40f','#e74c3c','#d35400','#c0a800','#922b21','#784212'] },
+  { label: 'Cool',    colors: ['#2980b9','#1abc9c','#3498db','#16a085','#2471a3','#148f77','#1f618d','#0e6655'] },
+  { label: 'Mono',    colors: ['#111111','#333333','#555555','#777777','#999999','#aaaaaa','#bbbbbb','#cccccc'] },
+];
 
 const DERIVED_KEYS = ['span', 'depth', 'subtree_count'] as const;
 type DerivedKey = typeof DERIVED_KEYS[number];
@@ -101,16 +112,17 @@ const AGG_LABELS: Record<AggFn, string> = {
 };
 
 const CHART_TYPES: { key: ChartType; label: string }[] = [
-  { key: 'bar',   label: 'Bar'   },
-  { key: 'line',  label: 'Line'  },
-  { key: 'area',  label: 'Area'  },
-  { key: 'pie',   label: 'Pie'   },
-  { key: 'radar', label: 'Radar' },
+  { key: 'bar',        label: 'Bar'         },
+  { key: 'stackedBar', label: 'Stacked Bar' },
+  { key: 'line',       label: 'Line'        },
+  { key: 'area',       label: 'Area'        },
+  { key: 'pie',        label: 'Pie'         },
+  { key: 'radar',      label: 'Radar'       },
 ];
 
 const DEFAULT_CONFIG: PivotConfig = {
   rowField: null, colField: null, valueField: null,
-  aggFn: 'count', chartType: 'bar',
+  aggFn: 'count', chartType: 'bar', palette: CHART_COLORS,
 };
 
 // ── Pivot computation ─────────────────────────────────────────────────────────
@@ -219,6 +231,38 @@ function DropZone({ id, label, sub, field, onClear }: {
   );
 }
 
+// ── CSV export helpers ────────────────────────────────────────────────────────
+
+function triggerDownload(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), { href: url, download: filename }).click();
+  URL.revokeObjectURL(url);
+}
+
+function exportPivotCsv(pivotData: PivotData, config: PivotConfig) {
+  const { colKeys, rows } = pivotData;
+  const hasTotal = colKeys.length > 1;
+  const colLabel = (ck: string) => ck === 'value' ? (config.valueField ?? 'Count') : ck;
+  const esc = (v: string | number | null) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const headers = [esc(config.rowField ?? 'Row'), ...colKeys.map(ck => esc(colLabel(ck))), ...(hasTotal ? ['"Total"'] : [])];
+  const body = rows.map(r => [
+    esc(r.rowKey),
+    ...colKeys.map(ck => r.values[ck] ?? ''),
+    ...(hasTotal ? [r.total ?? ''] : []),
+  ].join(','));
+  triggerDownload([headers.join(','), ...body].join('\n'), 'pivot.csv');
+}
+
+function exportSqlCsv(data: Record<string, unknown>[]) {
+  if (!data.length) return;
+  const keys = Object.keys(data[0]);
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = keys.map(k => esc(k)).join(',');
+  const body = data.map(row => keys.map(k => esc(row[k])).join(','));
+  triggerDownload([head, ...body].join('\n'), 'sql-results.csv');
+}
+
 // ── Charts ────────────────────────────────────────────────────────────────────
 
 const tickFmt = (v: number | string) => fmtNum(Number(v));
@@ -230,6 +274,8 @@ function PivotChart({ pivotData, config, mini = false }: {
   const chartData = pivotToChartData(pivotData);
   const { colKeys } = pivotData;
   const { chartType, valueField } = config;
+  const palette = config.palette.length ? config.palette : CHART_COLORS;
+  const clr = (i: number) => palette[i % palette.length];
   const h = mini ? 100 : 320;
   const margin = mini
     ? { top: 2, right: 2, left: 2, bottom: 2 }
@@ -259,7 +305,7 @@ function PivotChart({ pivotData, config, mini = false }: {
             label={mini ? undefined : ({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
             labelLine={!mini}
           >
-            {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            {pieData.map((_, i) => <Cell key={i} fill={clr(i)} />)}
           </Pie>
           {!mini && <Tooltip formatter={tooltipFmt} />}
         </PieChart>
@@ -279,8 +325,8 @@ function PivotChart({ pivotData, config, mini = false }: {
               key={ck}
               name={colLabel(ck)}
               dataKey={ck}
-              stroke={CHART_COLORS[i % CHART_COLORS.length]}
-              fill={CHART_COLORS[i % CHART_COLORS.length]}
+              stroke={clr(i)}
+              fill={clr(i)}
               fillOpacity={0.15}
             />
           ))}
@@ -299,9 +345,26 @@ function PivotChart({ pivotData, config, mini = false }: {
           {!mini && <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555' }} angle={-35} textAnchor="end" interval={0} />}
           {!mini && <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={tickFmt} />}
           {!mini && <Tooltip formatter={tooltipFmt} />}
-          {!mini && colKeys.length > 1 && <Legend />}
+          {!mini && colKeys.length > 1 && <Legend verticalAlign="top" />}
           {colKeys.map((ck, i) => (
-            <Bar key={ck} dataKey={ck} name={colLabel(ck)} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} />
+            <Bar key={ck} dataKey={ck} name={colLabel(ck)} fill={clr(i)} radius={[2, 2, 0, 0]} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  if (chartType === 'stackedBar') {
+    return (
+      <ResponsiveContainer width="100%" height={h}>
+        <BarChart data={chartData} margin={margin}>
+          {!mini && <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />}
+          {!mini && <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555' }} angle={-35} textAnchor="end" interval={0} />}
+          {!mini && <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={tickFmt} />}
+          {!mini && <Tooltip formatter={tooltipFmt} />}
+          {!mini && <Legend verticalAlign="top" />}
+          {colKeys.map((ck, i) => (
+            <Bar key={ck} dataKey={ck} name={colLabel(ck)} stackId="stack" fill={clr(i)} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -316,10 +379,10 @@ function PivotChart({ pivotData, config, mini = false }: {
           {!mini && <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555' }} angle={-35} textAnchor="end" interval={0} />}
           {!mini && <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={tickFmt} />}
           {!mini && <Tooltip formatter={tooltipFmt} />}
-          {!mini && colKeys.length > 1 && <Legend />}
+          {!mini && colKeys.length > 1 && <Legend verticalAlign="top" />}
           {colKeys.map((ck, i) => (
             <Line key={ck} type="monotone" dataKey={ck} name={colLabel(ck)}
-              stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={mini ? 1.5 : 2}
+              stroke={clr(i)} strokeWidth={mini ? 1.5 : 2}
               dot={mini ? false : { r: 3 }} />
           ))}
         </LineChart>
@@ -335,11 +398,11 @@ function PivotChart({ pivotData, config, mini = false }: {
           {!mini && <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#555' }} angle={-35} textAnchor="end" interval={0} />}
           {!mini && <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={tickFmt} />}
           {!mini && <Tooltip formatter={tooltipFmt} />}
-          {!mini && colKeys.length > 1 && <Legend />}
+          {!mini && colKeys.length > 1 && <Legend verticalAlign="top" />}
           {colKeys.map((ck, i) => (
             <Area key={ck} type="monotone" dataKey={ck} name={colLabel(ck)}
-              stroke={CHART_COLORS[i % CHART_COLORS.length]}
-              fill={CHART_COLORS[i % CHART_COLORS.length]}
+              stroke={clr(i)}
+              fill={clr(i)}
               fillOpacity={mini ? 0.2 : 0.1} strokeWidth={mini ? 1.5 : 2} />
           ))}
         </AreaChart>
@@ -350,15 +413,55 @@ function PivotChart({ pivotData, config, mini = false }: {
   return null;
 }
 
+// ── Dynamic SQL examples ──────────────────────────────────────────────────────
+
+function buildExamples(
+  fields: string[],
+  nameKey: string | null,
+  idKey: string | null,
+  grossCol: string | null,
+  jobFamCol: string | null,
+): [string, string][] {
+  const q = (col: string) => `\`${col}\``;
+  const out: [string, string][] = [];
+
+  out.push(['All rows (first 20)', 'SELECT * FROM data LIMIT 20']);
+
+  if (jobFamCol) {
+    out.push([`Count by ${jobFamCol}`, `SELECT ${q(jobFamCol)}, COUNT(*) cnt FROM data GROUP BY ${q(jobFamCol)} ORDER BY cnt DESC`]);
+  } else if (fields.length > 0) {
+    out.push([`Count by ${fields[0]}`, `SELECT ${q(fields[0])}, COUNT(*) cnt FROM data GROUP BY ${q(fields[0])} ORDER BY cnt DESC`]);
+  }
+
+  if (grossCol && nameKey) {
+    out.push(['Top salaries', `SELECT ${q(nameKey)}, ${q(grossCol)} FROM data ORDER BY ${q(grossCol)} DESC LIMIT 10`]);
+  } else if (grossCol) {
+    out.push(['Top salaries', `SELECT ${q(grossCol)} FROM data ORDER BY ${q(grossCol)} DESC LIMIT 10`]);
+  }
+
+  if (nameKey) {
+    out.push(['Remove name nulls', `DELETE FROM data WHERE ${q(nameKey)} IS NULL`]);
+  }
+
+  return out;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AnalyticsStudioView({ file, data }: Props) {
+const DERIVED_KEYS_SET = new Set(['span', 'depth', 'subtree_count']);
+
+function stripDerived(rows: ExcelRow[]): ExcelRow[] {
+  return rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !DERIVED_KEYS_SET.has(k))) as ExcelRow);
+}
+
+export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest }: Props) {
   const [rows, setRows]           = useState<ExcelRow[]>([]);
   const [fields, setFields]       = useState<string[]>([]);
   const [derivedFields, setDerivedFields] = useState<string[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [config, setConfig]       = useState<PivotConfig>(DEFAULT_CONFIG);
+  const [externalPivotData, setExternalPivotData] = useState<PivotData | null>(null);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [saveName, setSaveName]   = useState('');
   const [showSave, setShowSave]   = useState(false);
@@ -378,31 +481,41 @@ export default function AnalyticsStudioView({ file, data }: Props) {
       : [];
     setRows(enriched);
     originalRowsRef.current = enriched;
-    setFields(excelHeaders);
+    setFields([...excelHeaders].sort((a, b) => a.localeCompare(b)));
     setDerivedFields(added);
     alasql('DROP TABLE IF EXISTS data');
     alasql('CREATE TABLE data');
     alasql.tables.data.data = enriched.map((row: ExcelRow) => ({ ...row }));
   }
 
-  // Parse file whenever it changes
+  // Parse file whenever it changes; fall back to pre-parsed rows (restored session)
   useEffect(() => {
-    if (!file) { rawRowsRef.current = []; return; }
-    setLoading(true);
-    setError(null);
-    setConfig(DEFAULT_CONFIG);
-    setSqlResult(null);
-    parseExcelFile(file)
-      .then(raw => {
-        rawRowsRef.current = raw;
-        applyEnrichment(raw, dataRef.current);
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Failed to parse file.');
-      })
-      .finally(() => setLoading(false));
+    if (file) {
+      setLoading(true);
+      setError(null);
+      setConfig(DEFAULT_CONFIG);
+      setSqlResult(null);
+      parseExcelFile(file)
+        .then(raw => {
+          rawRowsRef.current = raw;
+          applyEnrichment(raw, dataRef.current);
+        })
+        .catch((e: unknown) => {
+          setError(e instanceof Error ? e.message : 'Failed to parse file.');
+        })
+        .finally(() => setLoading(false));
+      return;
+    }
+    // No file — use pre-parsed rows from restored session
+    if (propRows?.length) {
+      rawRowsRef.current = propRows;
+      applyEnrichment(propRows, dataRef.current);
+    } else {
+      rawRowsRef.current = [];
+    }
+    setLoading(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file]);
+  }, [file, propRows]);
 
   // Re-enrich without re-parsing when DashboardData changes (e.g. re-mapping)
   useEffect(() => {
@@ -411,6 +524,35 @@ export default function AnalyticsStudioView({ file, data }: Props) {
     applyEnrichment(raw, data);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // Apply AI-requested chart config
+  useEffect(() => {
+    if (!externalChartRequest) return;
+    setConfig(prev => ({
+      ...prev,
+      rowField:   externalChartRequest.rowField,
+      colField:   externalChartRequest.colField   ?? null,
+      valueField: externalChartRequest.valueField ?? null,
+      aggFn:      externalChartRequest.aggFn,
+      chartType:  externalChartRequest.chartType,
+    }));
+
+    if (externalChartRequest.precomputedRows?.length) {
+      const preRows  = externalChartRequest.precomputedRows;
+      const rField   = externalChartRequest.rowField;
+      const cols     = Object.keys(preRows[0] ?? {});
+      const vField   = externalChartRequest.valueField ?? cols.find(c => c !== rField) ?? 'value';
+      const pivotRows: PivotRow[] = preRows.map(row => {
+        const v = typeof row[vField] === 'number'
+          ? (row[vField] as number)
+          : parseFloat(String(row[vField] ?? 0)) || 0;
+        return { rowKey: String(row[rField] ?? '(blank)'), values: { value: v }, total: v };
+      }).sort((a, b) => (b.total ?? 0) - (a.total ?? 0));
+      setExternalPivotData({ colKeys: ['value'], rows: pivotRows });
+    } else {
+      setExternalPivotData(null);
+    }
+  }, [externalChartRequest]);
 
   function runSql() {
     if (!sqlQuery.trim()) return;
@@ -421,6 +563,16 @@ export default function AnalyticsStudioView({ file, data }: Props) {
       if (['UPDATE', 'DELETE', 'INSERT'].includes(verb)) {
         const updated: ExcelRow[] = alasql.tables?.data?.data ?? [];
         setRows([...updated]);
+        if (updated.length > 0) {
+          const allKeys = Object.keys(updated[0]);
+          setFields(allKeys.filter(k => !DERIVED_KEYS_SET.has(k)).sort((a, b) => a.localeCompare(b)));
+          setDerivedFields(allKeys.filter(k => DERIVED_KEYS_SET.has(k)));
+        }
+        onRowsChange?.(stripDerived(updated), {
+          source: 'analytics-sql',
+          query: sqlQuery,
+          affected: typeof result === 'number' ? result : updated.length,
+        });
         setSqlResult({ type: 'affected', count: typeof result === 'number' ? result : 0 });
       } else {
         const data = Array.isArray(result) ? result as Record<string, unknown>[] : [];
@@ -438,14 +590,28 @@ export default function AnalyticsStudioView({ file, data }: Props) {
     alasql('DROP TABLE IF EXISTS data');
     alasql('CREATE TABLE data');
     alasql.tables.data.data = original.map((r: ExcelRow) => ({ ...r }));
+    onRowsChange?.(null, { source: 'analytics-reset', affected: original.length });
     setSqlResult({ type: 'affected', count: original.length });
   }
 
   const allFields = [...fields, ...derivedFields];
 
-  const pivotData = useMemo(() => computePivot(rows, config), [rows, config]);
+  const detectedCols = useMemo(() => {
+    const norm = (h: string) => h.toLowerCase().replace(/[\s_-]/g, '');
+    const GROSS = ['totalannualcompensation','totalcompensation','ctc','totalctc','grosssalary','grosspay','totalpay','annualctc','totalgross','salary','annualcompensation','annualrate'];
+    const FAM   = ['jobfamily','function','department','dept','businessunit','team','division','jobfunction','orgunit','group'];
+    return {
+      nameCol:   fields.find(h => NAME_KEYS.includes(norm(h))) ?? null,
+      idCol:     fields.find(h => ID_KEYS.includes(norm(h)))   ?? null,
+      grossCol:  fields.find(h => GROSS.includes(norm(h)))     ?? null,
+      jobFamCol: fields.find(h => FAM.includes(norm(h)))       ?? null,
+    };
+  }, [fields]);
 
-  const isReady = !!(config.rowField && (config.aggFn === 'count' || config.valueField));
+  const computedPivotData = useMemo(() => computePivot(rows, config), [rows, config]);
+  const pivotData = externalPivotData ?? computedPivotData;
+
+  const isReady = !!(config.rowField && (config.aggFn === 'count' || config.valueField || externalPivotData));
   const hasData = isReady && pivotData.rows.length > 0;
 
   function handleDragStart(e: DragStartEvent) {
@@ -459,6 +625,7 @@ export default function AnalyticsStudioView({ file, data }: Props) {
     const zone  = String(e.over.id) as 'rowField' | 'colField' | 'valueField';
     if (!['rowField', 'colField', 'valueField'].includes(zone)) return;
     setConfig(prev => ({ ...prev, [zone]: field }));
+    setExternalPivotData(null);
   }
 
   function saveView() {
@@ -542,21 +709,21 @@ export default function AnalyticsStudioView({ file, data }: Props) {
             label="Row Group"
             sub="Group rows by this field"
             field={config.rowField}
-            onClear={() => setConfig(p => ({ ...p, rowField: null }))}
+            onClear={() => { setConfig(p => ({ ...p, rowField: null })); setExternalPivotData(null); }}
           />
           <DropZone
             id="colField"
             label="Column Break"
             sub="Split by this field (optional)"
             field={config.colField}
-            onClear={() => setConfig(p => ({ ...p, colField: null }))}
+            onClear={() => { setConfig(p => ({ ...p, colField: null })); setExternalPivotData(null); }}
           />
           <DropZone
             id="valueField"
             label="Value"
             sub="Numeric field to aggregate"
             field={config.valueField}
-            onClear={() => setConfig(p => ({ ...p, valueField: null }))}
+            onClear={() => { setConfig(p => ({ ...p, valueField: null })); setExternalPivotData(null); }}
           />
         </div>
 
@@ -590,6 +757,45 @@ export default function AnalyticsStudioView({ file, data }: Props) {
               ))}
             </div>
           </div>
+          <div className={styles.controlGroup}>
+            <span className={styles.controlLabel}>Palette</span>
+            <div className={styles.btnRow}>
+              {PALETTES.map(p => (
+                <button
+                  key={p.label}
+                  className={`${styles.ctrlBtn} ${config.palette[0] === p.colors[0] ? styles.ctrlBtnActive : ''}`}
+                  onClick={() => setConfig(prev => ({ ...prev, palette: p.colors }))}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {pivotData.colKeys.length > 0 && (
+            <div className={styles.controlGroup}>
+              <span className={styles.controlLabel}>Colors</span>
+              <div className={styles.paletteRow}>
+                {pivotData.colKeys.slice(0, 8).map((ck, i) => (
+                  <label
+                    key={ck}
+                    className={styles.colorSwatch}
+                    title={ck}
+                    style={{ background: (config.palette.length ? config.palette : CHART_COLORS)[i % 8] }}
+                  >
+                    <input
+                      type="color"
+                      value={(config.palette.length ? config.palette : CHART_COLORS)[i % 8]}
+                      onChange={e => {
+                        const next = [...(config.palette.length ? config.palette : CHART_COLORS)];
+                        next[i] = e.target.value;
+                        setConfig(prev => ({ ...prev, palette: next }));
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Preview (chart + table + save) ── */}
@@ -604,6 +810,12 @@ export default function AnalyticsStudioView({ file, data }: Props) {
 
             {/* Pivot table */}
             <div className={styles.tableWrap}>
+              <div className={styles.tableWrapHeader}>
+                <span className={styles.tableWrapTitle}>Pivot Table</span>
+                <button className={styles.exportBtn} onClick={() => exportPivotCsv(pivotData, config)}>
+                  ↓ Export CSV
+                </button>
+              </div>
               <div className={styles.ptScroll}>
                 <table className={styles.pt}>
                   <thead>
@@ -783,12 +995,7 @@ export default function AnalyticsStudioView({ file, data }: Props) {
                 <span className={styles.sqlShortcut}>Ctrl + Enter</span>
                 <div className={styles.sqlExamples}>
                   <span className={styles.sqlExLabel}>Examples:</span>
-                  {[
-                    ['Count by field',     'SELECT dept, COUNT(*) cnt FROM data GROUP BY dept ORDER BY cnt DESC'],
-                    ['Top salaries',       'SELECT name, salary FROM data ORDER BY salary DESC LIMIT 10'],
-                    ['Raise a grade',      "UPDATE data SET salary = salary * 1.1 WHERE grade = 'G5'"],
-                    ['Remove nulls',       'DELETE FROM data WHERE name IS NULL'],
-                  ].map(([label, q]) => (
+                  {buildExamples(fields, detectedCols.nameCol, detectedCols.idCol, detectedCols.grossCol, detectedCols.jobFamCol).map(([label, q]) => (
                     <button key={label} className={styles.sqlExBtn} onClick={() => setSqlQuery(q)}>
                       {label}
                     </button>
@@ -816,8 +1023,13 @@ export default function AnalyticsStudioView({ file, data }: Props) {
                 {sqlResult.type === 'rows' && (
                   <>
                     <div className={styles.sqlResultMeta}>
-                      {sqlResult.rowCount.toLocaleString()} row{sqlResult.rowCount !== 1 ? 's' : ''} returned
-                      {sqlResult.rowCount > 200 && <span className={styles.sqlTruncNote}> · showing first 200</span>}
+                      <span>
+                        {sqlResult.rowCount.toLocaleString()} row{sqlResult.rowCount !== 1 ? 's' : ''} returned
+                        {sqlResult.rowCount > 200 && <span className={styles.sqlTruncNote}> · showing first 200</span>}
+                      </span>
+                      <button className={styles.exportBtn} onClick={() => exportSqlCsv(sqlResult.data)}>
+                        ↓ Export CSV
+                      </button>
                     </div>
                     {sqlResult.data.length > 0 ? (
                       <div className={styles.sqlTableScroll}>

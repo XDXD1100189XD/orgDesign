@@ -1,0 +1,649 @@
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 220px);
+  min-height: 520px;
+  background: #fafaf9;
+  border-radius: 10px;
+  border: 1px solid #e4e3e0;
+  overflow: hidden;
+  font-family: inherit;
+  position: relative;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e4e3e0;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.headerTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111;
+  letter-spacing: -0.01em;
+}
+
+.headerMeta {
+  font-size: 11px;
+  color: #999;
+}
+
+.clearBtn {
+  font-size: 11px;
+  color: #999;
+  background: none;
+  border: 1px solid #e4e3e0;
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.clearBtn:hover { color: #555; border-color: #bbb; }
+
+/* ── Permissions bar ──────────────────────────────────────────────────────── */
+
+.permBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-bottom: 1px solid #e4e3e0;
+  background: #f7f7f6;
+  flex-shrink: 0;
+  transition: background 0.2s;
+  font-size: 11.5px;
+  color: #666;
+}
+
+.permBarWrite {
+  background: #fff8ee;
+  border-bottom-color: #f5d78e;
+}
+
+.permIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.permLabel {
+  font-weight: 500;
+  color: #444;
+}
+
+.permToggle {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 99px;
+  background: #d1d0ce;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.permToggleOn {
+  background: #2563eb;
+}
+
+.permToggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  display: block;
+}
+
+.permToggleOn .permToggleThumb {
+  transform: translateX(14px);
+}
+
+.permWarning {
+  color: #b45309;
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* ── Messages scroll area ─────────────────────────────────────────────────── */
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 20px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scroll-behavior: smooth;
+}
+
+/* ── Welcome / empty state ────────────────────────────────────────────────── */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  text-align: center;
+  gap: 10px;
+}
+
+.emptyIcon   { font-size: 28px; color: #006b6b; }
+.emptyTitle  { font-size: 16px; font-weight: 600; color: #111; }
+.emptySub    { font-size: 13px; color: #888; }
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 0 24px;
+  gap: 8px;
+}
+
+.welcomeIcon  { font-size: 24px; color: #006b6b; }
+.welcomeTitle { font-size: 15px; font-weight: 600; color: #111; margin-top: 4px; }
+.welcomeSub   { font-size: 12px; color: #888; max-width: 380px; line-height: 1.5; }
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+  max-width: 580px;
+}
+
+.suggestion {
+  font-size: 12px;
+  color: #444;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  text-align: left;
+}
+.suggestion:hover  { background: #006b6b0d; border-color: #006b6b66; color: #006b6b; }
+.suggestion:disabled { opacity: 0.5; cursor: default; }
+
+/* ── User messages ────────────────────────────────────────────────────────── */
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 4px;
+}
+
+.userBubble {
+  background: #1a1a1a;
+  color: #f8f8f7;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 10px 14px;
+  border-radius: 14px 14px 3px 14px;
+  max-width: 72%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Assistant messages ───────────────────────────────────────────────────── */
+
+.assistantRow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 4px 0;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  background: #006b6b;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.assistantBubble {
+  background: #fff;
+  border: 1px solid #e4e3e0;
+  border-radius: 3px 14px 14px 14px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #111;
+  line-height: 1.6;
+  max-width: calc(100% - 40px);
+  word-break: break-word;
+}
+
+/* Thinking dots */
+.thinkingDots {
+  display: flex;
+  gap: 5px;
+  padding: 4px 0;
+}
+.thinkingDots span {
+  width: 6px;
+  height: 6px;
+  background: #bbb;
+  border-radius: 50%;
+  animation: dotBounce 1.2s infinite ease-in-out;
+}
+.thinkingDots span:nth-child(2) { animation-delay: 0.2s; }
+.thinkingDots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; }
+  40%           { transform: scale(1);   opacity: 1;   }
+}
+
+/* Blinking cursor while streaming */
+.cursor::after {
+  content: '▋';
+  color: #006b6b;
+  animation: blink 0.9s step-end infinite;
+  font-size: 11px;
+  margin-left: 2px;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* ── Tool call row ────────────────────────────────────────────────────────── */
+
+.toolCallRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0 6px 36px;
+  margin: 2px 0;
+}
+
+.toolCallDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #006b6b;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+.toolCallBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toolCallHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolCallLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #006b6b;
+  letter-spacing: 0.01em;
+}
+
+.copySqlBtn {
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid #006b6b44;
+  border-radius: 3px;
+  background: transparent;
+  color: #006b6b;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+  line-height: 1.4;
+}
+.copySqlBtn:hover { background: #006b6b0d; }
+.copySqlCopied { color: #2a7a2a; border-color: #2a7a2a44; }
+
+.toolSql {
+  font-size: 11px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  color: #555;
+  background: #f5f4f2;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 600px;
+  border-left: 2px solid #006b6b44;
+}
+
+/* ── Follow-up suggestion chips ───────────────────────────────────────────── */
+
+.followUpsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 8px 36px;
+}
+
+.followUpBtn {
+  font-size: 11px;
+  color: #555;
+  background: #f5f4f2;
+  border: 1px solid #ddd;
+  border-radius: 14px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  text-align: left;
+  line-height: 1.4;
+}
+.followUpBtn:hover { background: #006b6b0d; border-color: #006b6b66; color: #006b6b; }
+
+/* ── Tool result rows ─────────────────────────────────────────────────────── */
+
+.toolResultRow {
+  padding: 4px 0 8px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resultMeta {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+}
+
+.toolErrorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 36px;
+  font-size: 11px;
+  color: #b34a00;
+  background: #fff5f0;
+  border-left: 2px solid #e87c4e;
+  margin: 2px 0 6px;
+  border-radius: 0 4px 4px 0;
+}
+
+.errorBadge {
+  font-weight: 600;
+  font-size: 10px;
+  background: #e87c4e;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Inline result table ──────────────────────────────────────────────────── */
+
+.resultTableWrap {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid #e4e3e0;
+  max-width: 100%;
+}
+
+.resultTable {
+  border-collapse: collapse;
+  font-size: 11.5px;
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+.rtTh {
+  background: #f5f4f2;
+  padding: 6px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #444;
+  border-bottom: 1px solid #e4e3e0;
+  position: sticky;
+  top: 0;
+}
+
+.rtTr:nth-child(even) { background: #fafaf9; }
+.rtTr:hover { background: #f0efed; }
+
+.rtTd {
+  padding: 5px 12px;
+  color: #222;
+  border-bottom: 1px solid #eeede9;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rtNull { color: #bbb; font-style: italic; }
+.rtMore { font-size: 11px; color: #888; padding: 6px 12px; background: #f5f4f2; font-style: italic; }
+
+/* ── Markdown styles inside assistant bubbles ─────────────────────────────── */
+
+.mdH1, .mdH2, .mdH3 {
+  margin: 10px 0 4px;
+  font-weight: 700;
+  color: #111;
+}
+.mdH1 { font-size: 14px; }
+.mdH2 { font-size: 13px; }
+.mdH3 { font-size: 12px; }
+
+.mdPara {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.mdList {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mdList li { line-height: 1.55; }
+
+.codeBlock {
+  background: #1a1a1a;
+  color: #e8e6e3;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  overflow-x: auto;
+  margin: 8px 0;
+  white-space: pre;
+}
+
+.inlineCode {
+  background: #f0efed;
+  color: #006b6b;
+  font-size: 11.5px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.mdTableWrap {
+  overflow-x: auto;
+  margin: 8px 0;
+  border-radius: 5px;
+  border: 1px solid #e4e3e0;
+}
+
+.mdTable {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+
+.mdTable th {
+  background: #f5f4f2;
+  padding: 5px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #444;
+  border-bottom: 1px solid #e4e3e0;
+}
+
+.mdTable td {
+  padding: 4px 12px;
+  border-bottom: 1px solid #eeede9;
+  color: #222;
+}
+
+/* ── Input bar ────────────────────────────────────────────────────────────── */
+
+.inputBar {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid #e4e3e0;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111;
+  background: #f5f4f2;
+  border: 1px solid #e4e3e0;
+  border-radius: 8px;
+  padding: 9px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus { border-color: #006b6b88; background: #fff; }
+.input::placeholder { color: #bbb; }
+.input:disabled { opacity: 0.6; }
+
+.sendBtn {
+  width: 36px;
+  height: 36px;
+  background: #006b6b;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sendBtn:hover:not(:disabled)   { background: #005555; }
+.sendBtn:disabled { opacity: 0.4; cursor: default; }
+
+.sendBusy {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Destructive SQL confirmation modal ──────────────────────────────────────── */
+
+.confirmOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: 10px;
+}
+
+.confirmModal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 28px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.confirmTitle { font-size: 14px; font-weight: 700; color: #111; }
+
+.confirmSql {
+  font-size: 11.5px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  background: #f5f4f2;
+  padding: 8px 12px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-left: 3px solid #e87c4e;
+  display: block;
+}
+
+.confirmWarn { font-size: 12px; color: #b34a00; margin: 0; line-height: 1.5; }
+
+.confirmActions { display: flex; justify-content: flex-end; gap: 10px; }
+
+.confirmCancel {
+  font-size: 13px;
+  padding: 7px 16px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: #555;
+  transition: background 0.12s;
+}
+.confirmCancel:hover { background: #f5f4f2; }
+
+.confirmOk {
+  font-size: 13px;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #c0392b;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.confirmOk:hover { background: #a93226; }
+
+.compBandPreview {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #e4e3e0;
+  border-radius: 6px;
+}

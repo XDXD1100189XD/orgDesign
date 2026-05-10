@@ -9,6 +9,7 @@ const INITIAL_METRIC_FILTERS: MetricFilter[] = [
   { metric: 'open_role', operator: 'any' as FilterOperator, value: 0 },
 ];
 import { parseExcelFile } from '@/lib/parseExcel';
+import type { ExcelRow } from '@/lib/parseExcel';
 import MetricFilters, { applyMetricFilters } from './MetricFilters';
 import styles from './TableView.module.css';
 
@@ -29,6 +30,10 @@ interface BulkState { col: string; value: string; }
 interface Props {
   data: DashboardData;
   file?: File | null;
+  jumpToId?: string | null;
+  onJumpComplete?: () => void;
+  externalRows?: ExcelRow[] | null;
+  onRowsChange?: (rows: ExcelRow[] | null, meta?: { source: 'employees-table'; action: 'cell-edit' | 'bulk-edit' | 'undo' | 'reset'; label?: string }) => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -173,7 +178,7 @@ function pageNums(cur: number, total: number): (number | -1)[] {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function TableView({ data, file }: Props) {
+export default function TableView({ data, file, jumpToId, onJumpComplete, externalRows, onRowsChange }: Props) {
   const [rows,         setRows]         = useState<GenRow[]>([]);
   const [origRows,     setOrigRows]     = useState<GenRow[]>([]);
   const [colDefs,      setColDefs]      = useState<ColDef[]>([]);
@@ -194,11 +199,15 @@ export default function TableView({ data, file }: Props) {
   const [metricFilters,  setMetricFilters]  = useState<MetricFilter[]>(INITIAL_METRIC_FILTERS);
   const [usingExcel,     setUsingExcel]     = useState(false);
 
+  const [highlightId,    setHighlightId]    = useState<string | null>(null);
+
   const dataRef      = useRef(data);
   const colMenuRef   = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const jumpRowRef   = useRef<HTMLTableRowElement | null>(null);
   const wasDragging  = useRef(false);
   const dragKey      = useRef<string | null>(null);
+  const isJumping    = useRef(false);
 
   dataRef.current = data;
 
@@ -240,6 +249,29 @@ export default function TableView({ data, file }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file]);
 
+  // ── Sync rows when Analytics Studio SQL mutations are applied / reset ────────
+
+  useEffect(() => {
+    if (externalRows === undefined) return;
+    if (externalRows === null) {
+      // reset: reload from file (or dashboard data)
+      if (file) {
+        setLoading(true);
+        parseExcelFile(file)
+          .then(raw => { initRows(mergeExcelWithDashboard(raw, dataRef.current)); setUsingExcel(true); })
+          .catch(() => { initRows(buildFromDashboard(dataRef.current)); setUsingExcel(false); })
+          .finally(() => setLoading(false));
+      } else {
+        initRows(buildFromDashboard(dataRef.current));
+        setUsingExcel(false);
+      }
+    } else {
+      initRows(mergeExcelWithDashboard(externalRows, dataRef.current));
+      setUsingExcel(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalRows]);
+
   // ── Click-outside for col menu ───────────────────────────────────────────────
 
   useEffect(() => {
@@ -256,6 +288,31 @@ export default function TableView({ data, file }: Props) {
   useEffect(() => {
     if (editCell) setTimeout(() => { editInputRef.current?.focus(); editInputRef.current?.select(); }, 0);
   }, [editCell]);
+
+  // ── Jump to row from Data Readiness ─────────────────────────────────────────
+
+  useEffect(() => {
+    if (!jumpToId) return;
+    isJumping.current = true;
+    setSearch('');
+    setColFilters({});
+    setSort({ key: '', dir: 'asc' });
+    setMetricFilters(INITIAL_METRIC_FILTERS);
+    const idx = rows.findIndex(r => r._id === jumpToId);
+    if (idx !== -1) {
+      setPage(Math.ceil((idx + 1) / PAGE_SIZE));
+      setHighlightId(jumpToId);
+    }
+    onJumpComplete?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToId]);
+
+  useEffect(() => {
+    if (!highlightId || !jumpRowRef.current) return;
+    jumpRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setHighlightId(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   // ── Derived: ordered visible cols ───────────────────────────────────────────
 
@@ -350,8 +407,11 @@ export default function TableView({ data, file }: Props) {
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pagedRows  = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Reset page when search/filters/sort change
-  useEffect(() => { setPage(1); }, [search, colFilters, sort]);
+  // Reset page when search/filters/sort change, but not when a jump triggered the reset
+  useEffect(() => {
+    if (isJumping.current) { isJumping.current = false; return; }
+    setPage(1);
+  }, [search, colFilters, sort]);
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -359,12 +419,23 @@ export default function TableView({ data, file }: Props) {
     setUndoStack(s => [snapshot, ...s].slice(0, UNDO_LIMIT));
   }
 
+  function publishRows(nextRows: GenRow[], action: 'cell-edit' | 'bulk-edit' | 'undo' | 'reset', label?: string) {
+    if (action === 'reset') {
+      onRowsChange?.(null, { source: 'employees-table', action, label });
+      return;
+    }
+    const cleanRows = nextRows.map(({ _id, ...row }) => row as ExcelRow);
+    onRowsChange?.(cleanRows, { source: 'employees-table', action, label });
+  }
+
   function undo() {
     if (!undoStack.length) return;
-    setRows(undoStack[0]);
+    const nextRows = undoStack[0];
+    setRows(nextRows);
     setUndoStack(s => s.slice(1));
     setSelected(new Set());
     setEditCell(null);
+    publishRows(nextRows, 'undo', 'Undo employee table edit');
   }
 
   function reset() {
@@ -375,15 +446,19 @@ export default function TableView({ data, file }: Props) {
     setSearch('');
     setPage(1);
     setEditCell(null);
+    publishRows(origRows, 'reset', 'Reset employee table edits');
   }
 
   function commitEdit() {
     if (!editCell) return;
     pushUndo(rows);
-    setRows(prev => prev.map(r =>
+    const label = `Edited ${editCell.col}`;
+    const nextRows = rows.map(r =>
       cellStr(r._id) === editCell.rowId ? { ...r, [editCell.col]: editValue } : r
-    ));
+    );
+    setRows(nextRows);
     setEditCell(null);
+    publishRows(nextRows, 'cell-edit', label);
   }
 
   function applyBulk(mode: 'selected' | 'filtered') {
@@ -392,11 +467,13 @@ export default function TableView({ data, file }: Props) {
     const ids = mode === 'selected'
       ? selected
       : new Set(filteredRows.map(r => cellStr(r._id)));
-    setRows(prev => prev.map(r =>
+    const nextRows = rows.map(r =>
       ids.has(cellStr(r._id)) ? { ...r, [bulk.col]: bulk.value } : r
-    ));
+    );
+    setRows(nextRows);
     setBulk(null);
     if (mode === 'selected') setSelected(new Set());
+    publishRows(nextRows, 'bulk-edit', `Bulk edited ${bulk.col}`);
   }
 
   function toggleSort(key: string) {
@@ -701,16 +778,19 @@ export default function TableView({ data, file }: Props) {
                 </td>
               </tr>
             ) : pagedRows.map(row => {
-              const rowId   = cellStr(row._id);
-              const isSel   = selected.has(rowId);
-              const flags   = validMap[rowId];
+              const rowId     = cellStr(row._id);
+              const isSel     = selected.has(rowId);
+              const flags     = validMap[rowId];
+              const isJump    = rowId === highlightId;
               return (
                 <tr
                   key={rowId}
+                  ref={isJump ? jumpRowRef : null}
                   className={[
                     styles.tr,
-                    isSel  ? styles.trSel     : '',
-                    flags  ? styles.trFlagged : '',
+                    isSel  ? styles.trSel       : '',
+                    flags  ? styles.trFlagged   : '',
+                    isJump ? styles.jumpHighlight : '',
                   ].join(' ')}
                 >
                   <td className={styles.checkTd}>

@@ -6,6 +6,24 @@
   z-index: 2;
 }
 
+/* ── Excel re-upload banner ─────────────────────────────────────────────────── */
+.excelPromptBanner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: #fffbeb; border: 1px solid #f59e0b;
+  border-radius: 4px; padding: 10px 16px; margin-bottom: 20px;
+}
+.excelPromptText { font-size: 13px; color: var(--ink); flex: 1; min-width: 220px; }
+.excelPromptBtn {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; background: var(--teal); color: var(--cream);
+  padding: 6px 14px; border-radius: 2px; cursor: pointer; white-space: nowrap;
+}
+.excelPromptDismiss {
+  background: none; border: none; font-size: 18px; color: var(--slate-light);
+  cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.excelPromptDismiss:hover { color: var(--ink); }
+
 /* ===== HEADER ===== */
 .header {
   display: flex;
@@ -47,6 +65,38 @@
 .downloadBtn:hover { background: var(--teal); transform: translateY(-1px); }
 .downloadBtn:disabled { opacity: 0.6; cursor: wait; }
 .spinning svg { animation: spin 0.8s linear infinite; }
+
+.changeLogBtn {
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid rgba(0,0,0,0.14);
+  padding: 9px 13px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.changeLogBtn:hover { border-color: var(--teal); color: var(--teal); transform: translateY(-1px); }
+.changeLogBtn span {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--teal);
+  color: var(--cream);
+  font-size: 9px;
+  letter-spacing: 0;
+}
 
 /* ===== TABS ===== */
 .tabs {
@@ -412,3 +462,21 @@
 .metricDeltaZero { color: var(--slate-light); }
 .metricDeltaPos  { color: #16a34a; font-weight: 600; }
 .metricDeltaNeg  { color: var(--red); font-weight: 600; }
+
+@media (max-width: 900px) {
+  .shell { padding: 24px 18px 64px; }
+  .header { flex-direction: column; gap: 16px; }
+  .headerRight { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 10px; }
+  .tabs { overflow-x: auto; }
+  .hierarchyDual { grid-template-columns: 1fr; }
+  .metricStrip { grid-template-columns: repeat(2, 1fr); }
+  .metricCard:nth-child(2n) { border-right: none; }
+}
+
+@media (max-width: 560px) {
+  .title { font-size: 40px; }
+  .downloadBtn,
+  .changeLogBtn { width: 100%; justify-content: center; }
+  .metricStrip { grid-template-columns: 1fr; }
+  .metricCard { border-right: none; border-bottom: 1px solid rgba(0,0,0,0.06); }
+}

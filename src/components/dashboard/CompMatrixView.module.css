@@ -9,12 +9,23 @@
   color: var(--ink); margin: 0 0 6px; letter-spacing: -0.02em;
 }
 .desc { font-size: 13px; color: var(--slate-2); line-height: 1.55; margin: 0; max-width: 640px; }
+.headerActions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
 .count {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--slate-2);
   background: var(--white); border: 1px solid rgba(0,0,0,0.08);
-  padding: 5px 12px; border-radius: 2px; white-space: nowrap; flex-shrink: 0;
+  padding: 5px 12px; border-radius: 2px; white-space: nowrap;
 }
+.exportBtn {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--slate-2);
+  background: var(--white); border: 1px solid rgba(0,0,0,0.08);
+  padding: 5px 12px; border-radius: 2px; white-space: nowrap;
+  cursor: pointer; transition: all 0.15s;
+}
+.exportBtn:hover { border-color: var(--teal); color: var(--teal); }
 
 .table {
   width: 100%; border-collapse: collapse;

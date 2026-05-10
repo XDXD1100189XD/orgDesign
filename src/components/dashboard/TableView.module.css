@@ -1,3 +1,13 @@
+/* ── Jump highlight ─────────────────────────────────────────────────────────── */
+@keyframes jumpPulse {
+  0%   { background: rgba(0, 168, 150, 0.22); }
+  60%  { background: rgba(0, 168, 150, 0.12); }
+  100% { background: transparent; }
+}
+.jumpHighlight td {
+  animation: jumpPulse 2.5s ease-out forwards;
+}
+
 /* ── Root ──────────────────────────────────────────────────────────────────── */
 .root {
   font-family: var(--font-body);
