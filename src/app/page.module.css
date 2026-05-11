@@ -6,23 +6,6 @@
   z-index: 2;
 }
 
-/* ── Excel re-upload banner ─────────────────────────────────────────────────── */
-.excelPromptBanner {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  background: #fffbeb; border: 1px solid #f59e0b;
-  border-radius: 4px; padding: 10px 16px; margin-bottom: 20px;
-}
-.excelPromptText { font-size: 13px; color: var(--ink); flex: 1; min-width: 220px; }
-.excelPromptBtn {
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
-  text-transform: uppercase; background: var(--teal); color: var(--cream);
-  padding: 6px 14px; border-radius: 2px; cursor: pointer; white-space: nowrap;
-}
-.excelPromptDismiss {
-  background: none; border: none; font-size: 18px; color: var(--slate-light);
-  cursor: pointer; padding: 0 4px; line-height: 1;
-}
-.excelPromptDismiss:hover { color: var(--ink); }
 
 /* ===== HEADER ===== */
 .header {

@@ -37,30 +37,6 @@ const AIAssistantView = dynamic(
   { ssr: false }
 );
 
-// ── Session persistence ──────────────────────────────────────────────────────
-
-const SESSION_KEY = 'org-dashboard-session';
-const CHANGE_LOG_VERSION = 3;
-
-interface SessionPayload {
-  data: DashboardData;
-  toBeData: DashboardData | null;
-  columnMapping: ColumnMapping | null;
-  excelHeaders: string[];
-  excelRows: ExcelRow[] | null;
-  studioMutatedRows: ExcelRow[] | null;
-  hadExcelFile: boolean;
-  changeLogVersion?: number;
-  changeLog?: ChangeRecord[];
-}
-
-function saveSession(payload: SessionPayload) {
-  try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(payload));
-  } catch { /* storage full — silently skip */ }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 type Tab = "summary" | "tree" | "table" | "readiness" | "advanced" | "studio" | "comp" | "ai";
 type StateSlice = "as-is" | "to-be";
@@ -151,46 +127,7 @@ export default function HomePage() {
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
   const [tableJumpId, setTableJumpId] = useState<string | null>(null);
-  const [showExcelPrompt, setShowExcelPrompt] = useState(false);
-  const [hadExcelFile, setHadExcelFile] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-
-  // ── Restore session on mount ──
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (!raw) return;
-      const s: Partial<SessionPayload> = JSON.parse(raw);
-      if (s.data)          setData(s.data);
-      if (s.excelHeaders)  setExcelHeaders(s.excelHeaders);
-      if (s.excelRows)     setExcelRows(s.excelRows);
-      if (s.studioMutatedRows) setStudioMutatedRows(s.studioMutatedRows);
-      if (s.columnMapping) setColumnMapping(s.columnMapping);
-      if (s.toBeData)      setToBeData(s.toBeData);
-      if (s.changeLogVersion === CHANGE_LOG_VERSION && s.changeLog) setChangeLog(s.changeLog);
-      if (s.hadExcelFile) {
-        setHadExcelFile(true);
-        setShowExcelPrompt(!s.excelRows?.length);
-      }
-    } catch { /* corrupted storage — ignore */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Persist session whenever data changes ──
-  useEffect(() => {
-    if (!data) return;
-    saveSession({
-      data,
-      toBeData,
-      columnMapping,
-      excelHeaders,
-      excelRows,
-      studioMutatedRows,
-      hadExcelFile: hadExcelFile || !!excelFile || !!excelRows,
-      changeLogVersion: CHANGE_LOG_VERSION,
-      changeLog,
-    });
-  }, [data, toBeData, columnMapping, excelHeaders, excelRows, studioMutatedRows, excelFile, hadExcelFile, changeLog]);
 
   const TABS = excelFile ? [...BASE_TABS, READINESS_TAB] : BASE_TABS;
 
@@ -230,9 +167,7 @@ export default function HomePage() {
 
   const handleExcelFile = useCallback((f: File) => {
     setExcelFile(f);
-    setHadExcelFile(true);
     setStudioMutatedRows(null);
-    setShowExcelPrompt(false);
   }, []);
 
   const handleExcelParsed = useCallback((rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => {
@@ -581,38 +516,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Excel re-upload banner (shown after session restore) ── */}
-      {showExcelPrompt && !excelFile && (
-        <div className={styles.excelPromptBanner}>
-          <span className={styles.excelPromptText}>
-            Re-upload your Excel file to restore Data Readiness file checks.
-            Dashboard state, rows, and the change log were restored from this browser session.
-          </span>
-          <label className={styles.excelPromptBtn}>
-            Re-upload Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              style={{ display: 'none' }}
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                setExcelFile(f);
-                setShowExcelPrompt(false);
-                try {
-                  const { parseExcelFile } = await import('@/lib/parseExcel');
-                  const rows = await parseExcelFile(f);
-                  setExcelRows(rows);
-                  setExcelHeaders(Object.keys(rows[0] ?? {}));
-                } catch { /* file still works for DataReadiness/Studio */ }
-              }}
-            />
-          </label>
-          <button className={styles.excelPromptDismiss} onClick={() => setShowExcelPrompt(false)}>
-            ×
-          </button>
-        </div>
-      )}
 
       {/* ── 01 Summary — always As-Is ── */}
       <div data-view="summary" style={{ display: activeTab === "summary" ? "block" : "none" }}>
