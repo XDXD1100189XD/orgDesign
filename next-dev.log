@@ -1,6 +1,6 @@
 
 > org-dashboard@1.0.0 dev
-> next dev
+> next dev --port 3000
 
    ▲ Next.js 15.5.15
    - Local:        http://localhost:3000
@@ -8,5 +8,6 @@
    - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 2.1s
-[?25h
+ ✓ Ready in 5.8s
+ ○ Compiling / ...
+ ✓ Compiled / in 3.9s (1951 modules)

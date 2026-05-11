@@ -232,4 +232,8 @@ export interface OrgNodeData {
   isUserCreated?: boolean;
   isOrphan?: boolean;
   subtreeCount?: number;
+  isSelected?: boolean;
+  isSearchTarget?: boolean;
+  isPathHighlighted?: boolean;
+  isPathBoundary?: boolean;
 }

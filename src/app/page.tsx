@@ -112,7 +112,8 @@ export default function HomePage() {
   const [showToBeUpload, setShowToBeUpload] = useState(false);
 
   // ── Studio-mutated rows (shared with Employees tab and AI assistant) ──
-  const [studioMutatedRows, setStudioMutatedRows] = useState<import("@/lib/parseExcel").ExcelRow[] | null>(null);
+  const [asIsMutatedRows, setAsIsMutatedRows] = useState<ExcelRow[] | null>(null);
+  const [toBeMutatedRows, setToBeMutatedRows] = useState<ExcelRow[] | null>(null);
 
   // ── AI chart request (set by AI assistant, consumed by Analytics Studio) ──
   const [pendingChartRequest, setPendingChartRequest] = useState<AIChartRequest | null>(null);
@@ -140,8 +141,10 @@ export default function HomePage() {
     toBeData,
     columnMapping,
     excelRows,
-    studioRows: studioMutatedRows,
-  }), [columnMapping, data, excelRows, studioMutatedRows, toBeData]);
+    studioRows: asIsMutatedRows,
+    asIsRows: asIsMutatedRows,
+    toBeRows: toBeMutatedRows,
+  }), [asIsMutatedRows, columnMapping, data, excelRows, toBeData, toBeMutatedRows]);
 
   const canBuildFromRows = useCallback((rows: ExcelRow[]) => {
     if (!columnMapping || rows.length === 0) return false;
@@ -158,16 +161,17 @@ export default function HomePage() {
       scope: "as-is",
       action: data ? "upload" : "initialize",
       before: currentSnapshot(),
-      after: { data: d, toBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data: d, toBeData, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
       details: data ? undefined : ["Baseline snapshot captured from the uploaded org data."],
     }));
     setData(d);
     setActiveTab("summary");
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   const handleExcelFile = useCallback((f: File) => {
     setExcelFile(f);
-    setStudioMutatedRows(null);
+    setAsIsMutatedRows(null);
+    setToBeMutatedRows(null);
   }, []);
 
   const handleExcelParsed = useCallback((rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => {
@@ -177,45 +181,46 @@ export default function HomePage() {
       scope: "mapping",
       action: "mapping",
       before: currentSnapshot(),
-      after: { data, toBeData, columnMapping: mapping, excelRows: rows, studioRows: studioMutatedRows },
+      after: { data, toBeData, columnMapping: mapping, excelRows: rows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setColumnMapping(mapping);
-  }, [appendChange, currentSnapshot, data, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, currentSnapshot, data, toBeData, toBeMutatedRows]);
 
   const handleRemappingConfirm = useCallback(async (newMapping: ColumnMapping) => {
     setShowRemapping(false);
-    if (!excelRows) return;
+    const sourceRows = asIsMutatedRows ?? excelRows;
+    if (!sourceRows) return;
     const { buildHierarchyFromMapping } = await import("@/lib/buildHierarchy");
-    const nextData = buildHierarchyFromMapping(excelRows, newMapping);
+    const nextData = buildHierarchyFromMapping(sourceRows, newMapping);
     appendChange(createChangeRecord({
       scope: "mapping",
       action: "mapping",
       before: currentSnapshot(),
-      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setData(nextData);
     setColumnMapping(newMapping);
-  }, [appendChange, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   const handleDataChange = useCallback((d: DashboardData) => {
     appendChange(createChangeRecord({
       scope: "as-is",
       action: "hierarchy",
       before: currentSnapshot(),
-      after: { data: d, toBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data: d, toBeData, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setData(d);
-  }, [appendChange, columnMapping, currentSnapshot, excelRows, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, excelRows, toBeData, toBeMutatedRows]);
 
   const handleToBeDataChange = useCallback((d: DashboardData) => {
     appendChange(createChangeRecord({
       scope: "to-be",
       action: "hierarchy",
       before: currentSnapshot(),
-      after: { data, toBeData: d, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data, toBeData: d, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setToBeData(d);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeMutatedRows]);
   const handleCompDataChange = useCallback((d: DashboardData) => {
     const nextToBeData = toBeData ? { ...toBeData, compMatrix: d.compMatrix } : toBeData;
     appendChange(createChangeRecord({
@@ -225,11 +230,11 @@ export default function HomePage() {
       summary: nextToBeData ? "Compensation bands were updated and synced into the target state." : "Compensation bands were updated.",
       details: ["As-Is compensation setup changed.", ...(nextToBeData ? ["To-Be compensation setup now uses the same band matrix."] : [])],
       before: currentSnapshot(),
-      after: { data: d, toBeData: nextToBeData, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data: d, toBeData: nextToBeData, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setData(d);
     setToBeData(nextToBeData);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   const handleSharedRowsChange = useCallback(async (
     rows: ExcelRow[] | null,
@@ -239,13 +244,14 @@ export default function HomePage() {
     const before = currentSnapshot();
     let nextData = data;
     let nextToBeData = toBeData;
-    const nextStudioRows = rows;
+    const nextAsIsRows = target === "as-is" ? rows : asIsMutatedRows;
+    const nextToBeRows = target === "to-be" ? rows : toBeMutatedRows;
 
     if (rows && columnMapping && canBuildFromRows(rows)) {
       const { buildHierarchyFromMapping } = await import("@/lib/buildHierarchy");
       const rebuilt = buildHierarchyFromMapping(rows, columnMapping);
-      if (target === "as-is") nextData = rebuilt;
-      if (target === "to-be") nextToBeData = rebuilt;
+      if (target === "as-is") nextData = data ? { ...rebuilt, compMatrix: data.compMatrix } : rebuilt;
+      if (target === "to-be") nextToBeData = toBeData ? { ...rebuilt, compMatrix: toBeData.compMatrix ?? data?.compMatrix } : { ...rebuilt, compMatrix: data?.compMatrix };
     }
 
     const isReset = rows === null;
@@ -254,7 +260,8 @@ export default function HomePage() {
         : meta?.source === "analytics-sql" ? "Analytics SQL"
           : meta?.source === "analytics-reset" ? "Analytics Studio"
             : meta?.source === "ai-sql" ? "Agentic AI SQL"
-              : "Employee rows";
+              : meta?.source === "hierarchy" ? "Hierarchy"
+                : "Employee rows";
 
     appendChange(createChangeRecord({
       scope: "rows",
@@ -275,20 +282,24 @@ export default function HomePage() {
         toBeData: nextToBeData,
         columnMapping,
         excelRows,
-        studioRows: nextStudioRows,
+        studioRows: nextAsIsRows,
+        asIsRows: nextAsIsRows,
+        toBeRows: nextToBeRows,
       },
     }));
 
-    setStudioMutatedRows(nextStudioRows);
+    if (target === "as-is") setAsIsMutatedRows(rows);
+    if (target === "to-be") setToBeMutatedRows(rows);
     if (nextData !== data) setData(nextData);
     if (nextToBeData !== toBeData) setToBeData(nextToBeData);
-  }, [activeTab, appendChange, canBuildFromRows, columnMapping, currentSnapshot, data, excelRows, studioSlice, tableSlice, toBeData]);
+  }, [activeTab, appendChange, asIsMutatedRows, canBuildFromRows, columnMapping, currentSnapshot, data, excelRows, studioSlice, tableSlice, toBeData, toBeMutatedRows]);
 
   const handleRowMutation = useCallback(async (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => {
     if (!columnMapping) return;
     const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
-    const nextAsIs = (target === 'as-is' || target === 'both') ? buildHierarchyFromMapping(rows, columnMapping) : data;
-    const nextToBe = (target === 'to-be' || target === 'both') ? buildHierarchyFromMapping(rows, columnMapping) : toBeData;
+    const rebuilt = buildHierarchyFromMapping(rows, columnMapping);
+    const nextAsIs = (target === 'as-is' || target === 'both') ? { ...rebuilt, compMatrix: data?.compMatrix } : data;
+    const nextToBe = (target === 'to-be' || target === 'both') ? { ...rebuilt, compMatrix: toBeData?.compMatrix ?? data?.compMatrix } : toBeData;
     const scope: ChangeScope = target === 'as-is' ? 'as-is' : target === 'to-be' ? 'to-be' : 'session';
     appendChange(createChangeRecord({
       scope,
@@ -297,17 +308,26 @@ export default function HomePage() {
       summary: `${rows.length.toLocaleString()} source rows rebuilt into hierarchy data.`,
       details: ["Dashboard state was rebuilt from the current row set and field mapping."],
       before: currentSnapshot(),
-      after: { data: nextAsIs, toBeData: nextToBe, columnMapping, excelRows, studioRows: rows },
+      after: {
+        data: nextAsIs,
+        toBeData: nextToBe,
+        columnMapping,
+        excelRows,
+        studioRows: target === "to-be" ? asIsMutatedRows : rows,
+        asIsRows: target === "to-be" ? asIsMutatedRows : rows,
+        toBeRows: target === "as-is" ? toBeMutatedRows : rows,
+      },
     }));
-    setStudioMutatedRows(rows);
     if (target === 'as-is' || target === 'both') {
+      setAsIsMutatedRows(rows);
       setExcelRows(rows);
       setData(nextAsIs);
     }
     if (target === 'to-be' || target === 'both') {
+      setToBeMutatedRows(rows);
       setToBeData(nextToBe);
     }
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   const handleFieldMapping = useCallback(async (field: string, column: string, newRows?: ExcelRow[]) => {
     if (!columnMapping) return;
@@ -321,7 +341,7 @@ export default function HomePage() {
     if (!rows) return;
     if (newRows) {
       setExcelRows(newRows);
-      setStudioMutatedRows(newRows);
+      setAsIsMutatedRows(newRows);
       // Add the new derived column to excelHeaders if it isn't already there
       setExcelHeaders(prev => prev.includes(column) ? prev : [...prev, column]);
     }
@@ -330,15 +350,16 @@ export default function HomePage() {
       scope: "mapping",
       action: "mapping",
       before: currentSnapshot(),
-      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows: newRows ?? excelRows, studioRows: newRows ?? studioMutatedRows },
+      after: { data: nextData, toBeData, columnMapping: newMapping, excelRows: newRows ?? excelRows, studioRows: newRows ?? asIsMutatedRows, asIsRows: newRows ?? asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setData(nextData);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows, toBeData]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
     if (!data) return;
     const nextToBe = JSON.parse(JSON.stringify(data));
+    const copiedRows = asIsMutatedRows ?? excelRows;
     appendChange(createChangeRecord({
       scope: "to-be",
       action: "copy",
@@ -346,15 +367,17 @@ export default function HomePage() {
       summary: "Target state initialized from the current organization snapshot.",
       details: ["Use this as a controlled baseline before target-state edits."],
       before: currentSnapshot(),
-      after: { data, toBeData: nextToBe, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data, toBeData: nextToBe, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: copiedRows },
     }));
     setToBeData(nextToBe);
+    setToBeMutatedRows(copiedRows ? copiedRows.map((row) => ({ ...row })) : null);
     setToBeFile(excelFile);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelFile, excelRows, studioMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelFile, excelRows]);
 
   const handleToBeUploaded = useCallback((
     d: DashboardData,
     file: File,
+    rows?: ExcelRow[],
   ) => {
     appendChange(createChangeRecord({
       scope: "to-be",
@@ -362,23 +385,25 @@ export default function HomePage() {
       title: "To-Be file uploaded",
       summary: `${file.name} loaded as target-state data.`,
       before: currentSnapshot(),
-      after: { data, toBeData: d, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data, toBeData: d, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: rows ?? toBeMutatedRows },
     }));
     setToBeData(d);
+    if (rows) setToBeMutatedRows(rows);
     setToBeFile(file);
     setShowToBeUpload(false);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeMutatedRows]);
 
   const handleResetToBe = useCallback(() => {
     appendChange(createChangeRecord({
       scope: "to-be",
       action: "reset",
       before: currentSnapshot(),
-      after: { data, toBeData: null, columnMapping, excelRows, studioRows: studioMutatedRows },
+      after: { data, toBeData: null, columnMapping, excelRows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: null },
     }));
     setToBeData(null);
     setToBeFile(null);
-  }, [appendChange, columnMapping, currentSnapshot, data, excelRows, studioMutatedRows]);
+    setToBeMutatedRows(null);
+  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows]);
 
   const handleRevertChange = useCallback((change: ChangeRecord) => {
     const before = cloneSnapshot(change.before);
@@ -390,7 +415,9 @@ export default function HomePage() {
     }
     if ("columnMapping" in before) setColumnMapping(before.columnMapping ?? null);
     if ("excelRows" in before) setExcelRows(before.excelRows ?? null);
-    if ("studioRows" in before) setStudioMutatedRows(before.studioRows ?? null);
+    if ("asIsRows" in before) setAsIsMutatedRows(before.asIsRows ?? null);
+    else if ("studioRows" in before) setAsIsMutatedRows(before.studioRows ?? null);
+    if ("toBeRows" in before) setToBeMutatedRows(before.toBeRows ?? null);
 
     setChangeLog((prev) => {
       const index = prev.findIndex((item) => item.id === change.id);
@@ -420,6 +447,18 @@ export default function HomePage() {
   const studioFile = studioSlice === "as-is" ? excelFile : (toBeFile ?? excelFile);
   const tableData  = tableSlice  === "as-is" ? data : (toBeData ?? data);
   const tableFile  = tableSlice  === "as-is" ? excelFile : (toBeFile ?? excelFile);
+  const rowsForSlice = (slice: StateSlice): ExcelRow[] | null =>
+    slice === "as-is"
+      ? (asIsMutatedRows ?? excelRows)
+      : (toBeMutatedRows ?? asIsMutatedRows ?? excelRows);
+  const studioRows = rowsForSlice(studioSlice);
+  const tableRows = rowsForSlice(tableSlice);
+  const asIsHierarchyRows = rowsForSlice("as-is");
+  const toBeHierarchyRows = rowsForSlice("to-be");
+  const switchHierarchySlice = (slice: StateSlice) => {
+    if (slice === "to-be" && !toBeData) handleCopyFromAsIs();
+    setStudioSlice(slice);
+  };
 
   return (
     <div className={styles.shell} ref={shellRef}>
@@ -428,7 +467,7 @@ export default function HomePage() {
           asIsHeaders={excelHeaders}
           asIsMapping={columnMapping}
           asIsData={data}
-          onConfirm={(d, file) => handleToBeUploaded(d, file)}
+          onConfirm={(d, file, rows) => handleToBeUploaded(d, file, rows)}
           onCancel={() => setShowToBeUpload(false)}
         />
       )}
@@ -556,7 +595,7 @@ export default function HomePage() {
         <AnalyticsStudioView
           file={studioFile}
           data={studioData}
-          rows={studioMutatedRows ?? excelRows ?? undefined}
+          rows={studioRows ?? undefined}
           onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
           externalChartRequest={pendingChartRequest}
         />
@@ -568,14 +607,91 @@ export default function HomePage() {
         data-export-title="Hierarchy Tree"
         style={{ display: activeTab === "tree" ? "block" : "none" }}
       >
-        <div className={styles.hierarchyDual}>
+        <div className={styles.hierarchyStateHeader}>
+          <div className={styles.sectionStateBar}>
+            <span className={styles.sectionStateLabel}>Hierarchy view</span>
+            <div className={styles.sectionStateBtns}>
+              <button
+                className={`${styles.sectionStateBtn} ${studioSlice === "as-is" ? styles.sectionStateBtnActive : ""}`}
+                onClick={() => switchHierarchySlice("as-is")}
+              >
+                As-Is
+              </button>
+              <button
+                className={`${styles.sectionStateBtn} ${studioSlice === "to-be" ? styles.sectionStateBtnActive : ""}`}
+                onClick={() => switchHierarchySlice("to-be")}
+                title={!toBeData ? "Create To-Be from the current As-Is hierarchy" : undefined}
+              >
+                To-Be
+              </button>
+            </div>
+            <span className={styles.sectionStateLabel}>
+              {studioSlice === "as-is"
+                ? "Current state"
+                : toBeFile
+                  ? toBeFile.name
+                  : "Target state"}
+            </span>
+          </div>
+          {studioSlice === "to-be" && (
+            <div className={styles.hierarchyStateActions}>
+              {excelFile && (
+                <button className={styles.toBeResetBtn} onClick={() => setShowToBeUpload(true)}>
+                  Upload To-Be
+                </button>
+              )}
+              {toBeData && (
+                <button className={styles.toBeResetBtn} onClick={handleResetToBe} title="Reset To-Be state">
+                  Reset To-Be
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className={styles.hierarchyWorkspace}>
+          <div className={styles.hierarchyMainPane}>
+            <HierarchyView
+              data={studioSlice === "as-is" ? data : (toBeData ?? data)}
+              onDataChange={studioSlice === "as-is" ? handleDataChange : handleToBeDataChange}
+              columnMapping={columnMapping}
+              rows={studioSlice === "as-is" ? asIsHierarchyRows : toBeHierarchyRows}
+              onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
+              stateKey={studioSlice}
+            />
+          </div>
+          <aside className={styles.hierarchyAiPane} aria-label="AI assistant">
+            <AIAssistantView
+              data={studioData}
+              rows={studioRows ?? []}
+              onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
+              onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
+              onDataChange={studioSlice === "as-is" ? handleCompDataChange : handleToBeDataChange}
+              toBeData={toBeData}
+              onRowMutation={handleRowMutation}
+              onFieldMapping={handleFieldMapping}
+              columnMapping={columnMapping}
+              variant="pane"
+            />
+          </aside>
+        </div>
+
+        {false && data && (
+        <div className={styles.hierarchyStateHeader}>
           {/* As-Is panel */}
           <div className={styles.statePanel}>
             <div className={styles.statePanelHeader}>
               <span className={styles.stateLabelAsIs}>AS-IS</span>
               <span className={styles.statePanelDesc}>Current State</span>
             </div>
-            <HierarchyView data={data} onDataChange={handleDataChange} />
+            <HierarchyView
+              data={data!}
+              onDataChange={handleDataChange}
+              columnMapping={columnMapping}
+              rows={asIsHierarchyRows}
+              onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "as-is" })}
+              stateKey="as-is"
+            />
           </div>
 
           {/* To-Be panel */}
@@ -590,7 +706,14 @@ export default function HomePage() {
               )}
             </div>
             {toBeData ? (
-              <HierarchyView data={toBeData} onDataChange={handleToBeDataChange} />
+              <HierarchyView
+                data={toBeData!}
+                onDataChange={handleToBeDataChange}
+                columnMapping={columnMapping}
+                rows={toBeHierarchyRows}
+                onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "to-be" })}
+                stateKey="to-be"
+              />
             ) : (
               <ToBeEmptyState
                 onCopy={handleCopyFromAsIs}
@@ -600,6 +723,7 @@ export default function HomePage() {
             )}
           </div>
         </div>
+        )}
 
         {/* ── Target State Analysis ── */}
         <TargetStateAnalysis asIs={computeStateMetrics(data)} toBe={toBeData ? computeStateMetrics(toBeData) : null} />
@@ -640,7 +764,7 @@ export default function HomePage() {
           file={tableFile}
           jumpToId={tableJumpId}
           onJumpComplete={() => setTableJumpId(null)}
-          externalRows={studioMutatedRows ?? excelRows}
+          externalRows={tableRows}
           onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: tableSlice })}
         />
       </div>
@@ -664,10 +788,11 @@ export default function HomePage() {
       )}
 
       {/* ── 08 AI Assistant ── */}
-      <div data-view="ai" style={{ display: activeTab === "ai" ? "block" : "none" }}>
+      {activeTab === "ai" && (
+      <div data-view="ai">
         <AIAssistantView
           data={data}
-          rows={studioMutatedRows ?? excelRows ?? []}
+          rows={asIsHierarchyRows ?? []}
           onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "as-is" })}
           onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
           onDataChange={handleCompDataChange}
@@ -677,6 +802,7 @@ export default function HomePage() {
           columnMapping={columnMapping}
         />
       </div>
+      )}
 
       <footer className={styles.footer}>
         <div>Confidential · Internal Analytics · 2026</div>

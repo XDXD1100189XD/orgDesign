@@ -22,7 +22,20 @@ import type {
   CompMatrix,
   CompTransition,
 } from "@/lib/types";
+import type { ColumnMapping, CanonicalField } from "@/lib/fieldDictionary";
+import { FIELD_GROUPS } from "@/lib/fieldDictionary";
+import type { ExcelRow } from "@/lib/parseExcel";
 import { computeMetrics } from "@/lib/metrics";
+import {
+  addPositionRow,
+  deletePositionRowsWithReassignment,
+  editPositionRow,
+  getTopLevelTransferIds,
+  transferPositionRows,
+  validateTransferTarget,
+  type HierarchyPositionPayload,
+} from "@/lib/hierarchyRows";
+import { getPositionPath, searchHierarchyPositions } from "./hierarchySearch";
 import OrgNode from "./OrgNode";
 import styles from "./HierarchyView.module.css";
 
@@ -30,6 +43,19 @@ const nodeTypes = { org: OrgNode };
 interface Props {
   data: DashboardData;
   onDataChange: (d: DashboardData) => void;
+  columnMapping?: ColumnMapping | null;
+  rows?: ExcelRow[] | null;
+  onRowsChange?: (
+    rows: ExcelRow[],
+    meta?: {
+      source: "hierarchy";
+      action: "add" | "edit" | "delete" | "transfer";
+      label?: string;
+      affected?: number;
+      target?: "as-is" | "to-be";
+    },
+  ) => void;
+  stateKey: "as-is" | "to-be";
 }
 
 const NODE_W = 200;
@@ -54,16 +80,56 @@ function getOrphans(
   return Object.keys(V).filter((id) => !c.has(id));
 }
 
+const CORE_FIELDS = new Set<CanonicalField>([
+  "Employee ID",
+  "Manager ID",
+  "Full Name",
+  "Business Title",
+  "Position Status",
+  "Department Name",
+  "Compensation Grade",
+  "Location",
+  "Country",
+  "Region",
+]);
+
+function mappedFieldList(columnMapping?: ColumnMapping | null): CanonicalField[] {
+  if (!columnMapping) return [];
+  return FIELD_GROUPS.flatMap((group) => group.fields).filter((field) => !!columnMapping[field]?.column);
+}
+
+function positionPayloadFromVertex(
+  data: DashboardData,
+  nodeId: string,
+): HierarchyPositionPayload | null {
+  const v = data.vertices[nodeId];
+  if (!v) return null;
+  const managerId = data.metrics.parent[nodeId];
+  return {
+    employeeId: v.id || nodeId,
+    managerId: managerId ? data.vertices[managerId]?.id || "" : "",
+    name: v.open_role ? "" : v.display_name,
+    role: v.role || "",
+    department: v.dept || "",
+    grade: v.grade || "",
+    location: v.geo || "",
+    country: "",
+    region: "",
+    status: v.open_role ? "Open" : "Filled",
+    extraFields: {},
+  };
+}
+
 function buildGraph(
   data: DashboardData,
   viewRoot: string,
   localCollapsed: Set<string>,
-  onDel: (id: string) => void,
-  onAdd: (id: string) => void,
-  onEdit: (id: string) => void,
   onToggle: (id: string) => void,
   onDrillDown: (id: string) => void,
   userCreatedIds: Set<string>,
+  selectedNodeIds: Set<string>,
+  activeSearchResultId: string | null,
+  highlightedPathIds: Set<string>,
 ): { nodes: Node[]; edges: Edge[] } {
   const { vertices: V, metrics: m } = data;
   const out: { nodes: Node[]; edges: Edge[] } = { nodes: [], edges: [] };
@@ -90,6 +156,8 @@ function buildGraph(
     const isCol = localCollapsed.has(id);
     const isBoundary = layer >= LAYER_LIMIT - 1 && allKids.length > 0;
     const visibleKids = (isBoundary || isCol) ? [] : allKids;
+    const pathIndex = [...highlightedPathIds].indexOf(id);
+    const isPathBoundary = isBoundary && pathIndex >= 0 && allKids.some((kid) => highlightedPathIds.has(kid));
 
     out.nodes.push({
       id,
@@ -110,10 +178,11 @@ function buildGraph(
         isUserCreated: userCreatedIds.has(id),
         isOrphan: false,
         isBoundary,
+        isSelected: selectedNodeIds.has(id),
+        isSearchTarget: activeSearchResultId === id,
+        isPathHighlighted: highlightedPathIds.has(id),
+        isPathBoundary,
         subtreeCount: m.subtree_count[id] ?? 0,
-        onDelete: onDel,
-        onAdd,
-        onEdit,
         onToggleCollapse: onToggle,
         onDrillDown,
         collapsed: isCol,
@@ -124,15 +193,17 @@ function buildGraph(
     let cx = x - ((w[id] || NODE_W) - NODE_W) / 2;
     visibleKids.forEach((kid) => {
       const isU = userCreatedIds.has(kid);
+      const fromPathIdx = [...highlightedPathIds].indexOf(id);
+      const isPathEdge = fromPathIdx >= 0 && [...highlightedPathIds][fromPathIdx + 1] === kid;
       out.edges.push({
         id: `${id}->${kid}`,
         source: id,
         target: kid,
         type: "straight",
         style: {
-          stroke: isU ? "#6366f1" : "#b8b5a8",
-          strokeWidth: isU ? 2 : 1.5,
-          strokeDasharray: isU ? "6 3" : undefined,
+          stroke: isPathEdge ? "#d97706" : isU ? "#6366f1" : "#b8b5a8",
+          strokeWidth: isPathEdge ? 3 : isU ? 2 : 1.5,
+          strokeDasharray: isPathEdge ? undefined : isU ? "6 3" : undefined,
         },
         label: isU ? "user created" : undefined,
         labelStyle: isU ? { fill: "#6366f1", fontSize: 9, fontWeight: 700 } : undefined,
@@ -174,9 +245,10 @@ function buildGraph(
             isUserCreated: userCreatedIds.has(id),
             isOrphan: true,
             isBoundary: false,
-            onDelete: onDel,
-            onAdd,
-            onEdit,
+            isSelected: selectedNodeIds.has(id),
+            isSearchTarget: activeSearchResultId === id,
+            isPathHighlighted: highlightedPathIds.has(id),
+            isPathBoundary: false,
             onToggleCollapse: onToggle,
             onDrillDown,
             collapsed: false,
@@ -224,24 +296,29 @@ interface NodePayload {
   geo: string;
   dept: string;
   isOpen: boolean;
+  extraFields: Partial<Record<CanonicalField, string>>;
 }
 
 function NodeFormModal({
   mode,
   parentName,
   initialData,
+  startOpenOverride,
   compMatrix,
+  columnMapping,
   onConfirm,
   onCancel,
 }: {
   mode: "add" | "edit-status";
   parentName?: string;
   initialData?: { isOpen: boolean; name: string; jobId: string; role: string; grade: string; geo: string; dept: string };
+  startOpenOverride?: boolean;
   compMatrix?: CompMatrix;
-  onConfirm: (p: NodePayload) => void;
+  columnMapping?: ColumnMapping | null;
+  onConfirm: (p: NodePayload, addAnother?: boolean) => void;
   onCancel: () => void;
 }) {
-  const startOpen = mode === "edit-status" ? !initialData!.isOpen : false;
+  const startOpen = mode === "edit-status" ? (startOpenOverride ?? !initialData!.isOpen) : false;
   const [isOpen, setIsOpen] = useState(startOpen);
   const [name,  setName]  = useState(mode === "edit-status" && !initialData!.isOpen ? initialData!.name : "");
   const [jobId, setJobId] = useState(initialData?.jobId || "");
@@ -249,6 +326,7 @@ function NodeFormModal({
   const [grade, setGrade] = useState(initialData?.grade || "");
   const [geo,   setGeo]   = useState(initialData?.geo   || "");
   const [dept,  setDept]  = useState(initialData?.dept  || "");
+  const [extraFields, setExtraFields] = useState<Partial<Record<CanonicalField, string>>>({});
 
   const knownGeos = compMatrix
     ? [...new Set(Object.values(compMatrix).flatMap((g) => (g ? Object.keys(g) : [])))]
@@ -257,13 +335,48 @@ function NodeFormModal({
     ? compMatrix[grade.trim()]?.[geo.trim()] ?? null
     : null;
 
-  const canConfirm = isOpen ? !!jobId.trim() : !!name.trim();
+  const requiresEmployeeId = !!columnMapping?.["Employee ID"]?.column;
+  const canConfirm = (requiresEmployeeId ? !!jobId.trim() : (isOpen ? !!jobId.trim() : true)) && (isOpen || !!name.trim());
+  const advancedGroups = FIELD_GROUPS
+    .map((group) => ({
+      ...group,
+      fields: group.fields.filter((field) => columnMapping?.[field]?.column && !CORE_FIELDS.has(field)),
+    }))
+    .filter((group) => group.fields.length > 0);
+
+  const buildPayload = (): NodePayload => ({
+    name: name.trim(),
+    jobId: jobId.trim(),
+    role: role.trim(),
+    grade: grade.trim(),
+    geo: geo.trim(),
+    dept: dept.trim(),
+    isOpen,
+    extraFields: Object.fromEntries(
+      Object.entries(extraFields).map(([field, value]) => [field, String(value ?? "").trim()]),
+    ) as Partial<Record<CanonicalField, string>>,
+  });
+
+  const resetForNext = () => {
+    setName("");
+    setJobId("");
+    setRole("");
+    setGrade("");
+    setGeo("");
+    setDept("");
+    setExtraFields({});
+  };
+
+  const submit = (addAnother = false) => {
+    onConfirm(buildPayload(), addAnother);
+    if (addAnother) resetForNext();
+  };
 
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modal}>
         <h3 className={styles.modalTitle}>
-          {mode === "add" ? "Add report under" : "Edit node"}
+          {mode === "add" ? "Add direct report under" : "Edit position"}
         </h3>
         {mode === "add"
           ? <p className={styles.modalParent}>{parentName}</p>
@@ -308,7 +421,7 @@ function NodeFormModal({
         />
 
         <label className={styles.fieldLabel}>
-          Employee / Job ID {isOpen && <span className={styles.reqMark}>*</span>}
+          Employee / Job ID {(isOpen || requiresEmployeeId) && <span className={styles.reqMark}>*</span>}
         </label>
         <input
           className={styles.fieldInput}
@@ -367,16 +480,46 @@ function NodeFormModal({
           onChange={(e) => setDept(e.target.value)}
         />
 
+        {advancedGroups.length > 0 && (
+          <div className={styles.advancedFields}>
+            {advancedGroups.map((group) => (
+              <details key={group.label} className={styles.fieldGroup}>
+                <summary>{group.label} mapped fields</summary>
+                {group.fields.map((field) => (
+                  <label key={field} className={styles.fieldLabel}>
+                    {field}
+                    <input
+                      className={styles.fieldInput}
+                      value={extraFields[field] ?? ""}
+                      placeholder={columnMapping?.[field]?.column || field}
+                      onChange={(e) => setExtraFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                    />
+                  </label>
+                ))}
+              </details>
+            ))}
+          </div>
+        )}
+
         <div className={styles.modalActions}>
           <button className={styles.cancelBtn} onClick={onCancel}>
             {mode === "add" ? "Cancel" : "Back"}
           </button>
+          {mode === "add" && (
+            <button
+              className={styles.cancelBtn}
+              disabled={!canConfirm}
+              onClick={() => submit(true)}
+            >
+              Save and add another
+            </button>
+          )}
           <button
             className={styles.confirmBtn}
             disabled={!canConfirm}
-            onClick={() => onConfirm({ name: name.trim(), jobId: jobId.trim(), role: role.trim(), grade: grade.trim(), geo: geo.trim(), dept: dept.trim(), isOpen })}
+            onClick={() => submit(false)}
           >
-            {mode === "add" ? "Add Node" : "Save Changes"}
+            {mode === "add" ? "Save and close" : "Save position"}
           </button>
         </div>
       </div>
@@ -414,7 +557,7 @@ function DeleteModal({
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modal}>
-        <h3 className={styles.modalTitle}>Remove node</h3>
+        <h3 className={styles.modalTitle}>Remove position</h3>
         <p className={styles.modalParent}>{nodeName}</p>
         {childIds.length > 0 ? (
           <>
@@ -422,13 +565,13 @@ function DeleteModal({
               {childIds.length} direct report{childIds.length > 1 ? "s" : ""}{" "}
               will be reassigned.
             </p>
-            <label className={styles.fieldLabel}>Reassign to</label>
+            <label className={styles.fieldLabel}>Reassign direct reports to</label>
             <select
               className={styles.fieldSelect}
               value={target}
               onChange={(e) => setTarget(e.target.value)}
             >
-              <option value="">— make orphan —</option>
+              <option value="">Make unassigned</option>
               {candidates.map((id) => (
                 <option key={id} value={id}>
                   {V[id].display_name} ({V[id].role}) — L{m.depth[id] ?? "?"}
@@ -438,7 +581,7 @@ function DeleteModal({
           </>
         ) : (
           <p className={styles.modalNote}>
-            No direct reports. Node will be removed.
+            No direct reports. This position will be removed.
           </p>
         )}
         <div className={styles.modalActions}>
@@ -449,7 +592,7 @@ function DeleteModal({
             className={styles.deleteBtn}
             onClick={() => onConfirm(target || null)}
           >
-            {childIds.length > 0 ? "Reassign & Remove" : "Remove"}
+            {childIds.length > 0 ? "Reassign & remove" : "Remove position"}
           </button>
         </div>
       </div>
@@ -464,18 +607,24 @@ function EditModal({
   nodeId,
   data,
   userCreatedIds,
+  columnMapping,
+  initialOp = "menu",
+  toggleStatusOnOpen = true,
   onSave,
   onCancel,
 }: {
   nodeId: string;
   data: DashboardData;
   userCreatedIds: Set<string>;
+  columnMapping?: ColumnMapping | null;
+  initialOp?: EditOp;
+  toggleStatusOnOpen?: boolean;
   onSave: (newData: DashboardData) => void;
   onCancel: () => void;
 }) {
   const { vertices: V, metrics: m, edges: rawEdges } = data;
   const v = V[nodeId];
-  const [op, setOp] = useState<EditOp>("menu");
+  const [op, setOp] = useState<EditOp>(initialOp);
   const [newMgr, setNewMgr] = useState<string>(m.parent[nodeId] || "");
   const [cyclePath, setCyclePath] = useState<string[] | null>(null);
   const [breakEdge, setBreakEdge] = useState<string>("");
@@ -495,7 +644,7 @@ function EditModal({
   // ── Reassign: check cycle when user picks a manager
   const handleReassignConfirm = () => {
     if (!newMgr) {
-      // No manager = make orphan
+      // No manager = make unassigned
       const nEdges = rawEdges.filter((e) => e.employee_temp_id !== nodeId);
       onSave({ ...data, edges: nEdges, metrics: computeMetrics(nEdges) });
       return;
@@ -603,7 +752,7 @@ function EditModal({
     return (
       <div className={styles.modalOverlay}>
         <div className={styles.modal}>
-          <h3 className={styles.modalTitle}>Edit node</h3>
+          <h3 className={styles.modalTitle}>Edit position</h3>
           <p className={styles.modalParent}>{v.display_name}</p>
           <p className={styles.modalNote}>
             {v.role} · {isOpen ? "○ Open Role" : "● Filled Role"} · {displayId}
@@ -712,7 +861,7 @@ function EditModal({
             ))}
           </select>
           <div className={styles.modalActions}>
-            <button className={styles.cancelBtn} onClick={() => setOp("menu")}>
+            <button className={styles.cancelBtn} onClick={() => initialOp === "menu" ? setOp("menu") : onCancel()}>
               Back
             </button>
             <button
@@ -814,9 +963,11 @@ function EditModal({
           geo: v.geo || "",
           dept: v.dept || "",
         }}
+        startOpenOverride={toggleStatusOnOpen ? undefined : isOpen}
         compMatrix={data.compMatrix}
+        columnMapping={columnMapping}
         onConfirm={handleToggleStatus}
-        onCancel={() => setOp("menu")}
+        onCancel={() => initialOp === "menu" ? setOp("menu") : onCancel()}
       />
     );
   }
@@ -825,52 +976,95 @@ function EditModal({
 }
 
 // ── Inner ──
-function Inner({ data, onDataChange }: Props) {
+function MultiTransferModal({
+  data,
+  topLevelIds,
+  nestedSelectionCount,
+  onApply,
+  onCancel,
+}: {
+  data: DashboardData;
+  topLevelIds: string[];
+  nestedSelectionCount: number;
+  onApply: (targetManagerId: string) => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [targetId, setTargetId] = useState("");
+  const validation = validateTransferTarget(data, topLevelIds, targetId);
+  const selectedSet = new Set(topLevelIds);
+  const targetOptions = query.trim()
+    ? searchHierarchyPositions(data, query).map((result) => result.id)
+    : Object.keys(data.vertices);
+  const candidates = targetOptions.filter((id) => !selectedSet.has(id)).slice(0, 20);
+
+  return (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modal}>
+        <h3 className={styles.modalTitle}>Transfer selected positions</h3>
+        <p className={styles.modalParent}>
+          {topLevelIds.length} move source{topLevelIds.length === 1 ? "" : "s"}
+        </p>
+        {nestedSelectionCount > 0 && (
+          <p className={styles.modalNote}>
+            {nestedSelectionCount} nested selection{nestedSelectionCount === 1 ? "" : "s"} will move inside an already selected subtree.
+          </p>
+        )}
+        <div className={styles.transferPreview}>
+          {topLevelIds.map((id) => (
+            <span key={id}>{data.vertices[id]?.display_name || id}</span>
+          ))}
+        </div>
+        <label className={styles.fieldLabel}>Search new manager</label>
+        <input
+          className={styles.fieldInput}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search manager by name, title, ID, department..."
+        />
+        <label className={styles.fieldLabel}>New manager</label>
+        <select
+          className={styles.fieldSelect}
+          value={targetId}
+          onChange={(e) => setTargetId(e.target.value)}
+        >
+          <option value="">Unassigned</option>
+          {candidates.map((id) => (
+            <option key={id} value={id}>
+              {data.vertices[id].display_name} ({data.vertices[id].role}) - L{data.metrics.depth[id] ?? "?"}
+            </option>
+          ))}
+        </select>
+        {!validation.ok && <p className={styles.modalWarn}>{validation.reason}</p>}
+        <div className={styles.modalActions}>
+          <button className={styles.cancelBtn} onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className={styles.confirmBtn}
+            disabled={!validation.ok || topLevelIds.length === 0}
+            onClick={() => onApply(targetId)}
+          >
+            Apply transfer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey }: Props) {
   const { vertices: V, metrics: m, edges: dataEdges } = data;
   const rf = useReactFlow();
   const mounted = useRef(false);
   const userCreatedIds = useRef(new Set<string>());
 
-  // Undo / Redo
-  const [history, setHistory] = useState<DashboardData[]>([data]);
-  const [histIdx, setHistIdx] = useState(0);
-
   const pushState = useCallback(
     (d: DashboardData) => {
-      setHistory((prev) => {
-        const trimmed = prev.slice(0, histIdx + 1);
-        return [...trimmed, d];
-      });
-      setHistIdx((i) => i + 1);
       onDataChange(d);
     },
-    [histIdx, onDataChange],
+    [onDataChange],
   );
-
-  const canUndo = histIdx > 0;
-  const canRedo = histIdx < history.length - 1;
-
-  const undo = useCallback(() => {
-    if (!canUndo) return;
-    const prev = history[histIdx - 1];
-    setHistIdx((i) => i - 1);
-    onDataChange(prev);
-  }, [canUndo, history, histIdx, onDataChange]);
-
-  const redo = useCallback(() => {
-    if (!canRedo) return;
-    const next = history[histIdx + 1];
-    setHistIdx((i) => i + 1);
-    onDataChange(next);
-  }, [canRedo, history, histIdx, onDataChange]);
-
-  // Keep history in sync when external data changes (initial load)
-  useEffect(() => {
-    if (history.length === 1 && history[0] !== data) {
-      setHistory([data]);
-      setHistIdx(0);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── View navigation (3-layer windowed view) ──
   const [viewRoot, setViewRoot] = useState<string>(m.basic.roots[0] || "");
@@ -883,6 +1077,14 @@ function Inner({ data, onDataChange }: Props) {
       setViewRoot(data.metrics.basic.roots[0] || "");
       setViewHistory([]);
       setLocalCollapsed(new Set());
+    }
+    if (selectedNodeId && !data.vertices[selectedNodeId]) {
+      setSelectedNodeId(null);
+    }
+    setSelectedNodeIds((prev) => new Set([...prev].filter((id) => !!data.vertices[id])));
+    if (activeSearchResultId && !data.vertices[activeSearchResultId]) {
+      setActiveSearchResultId(null);
+      setHighlightedPathIds(new Set());
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -902,13 +1104,65 @@ function Inner({ data, onDataChange }: Props) {
     setLocalCollapsed(new Set());
   }, []);
 
+  const handleBreadcrumbJump = useCallback((id: string) => {
+    const path = [...viewHistory, viewRoot];
+    const idx = path.indexOf(id);
+    if (idx < 0) return;
+    setViewRoot(id);
+    setViewHistory(path.slice(0, idx));
+    setLocalCollapsed(new Set());
+  }, [viewHistory, viewRoot]);
+
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editInitialOp, setEditInitialOp] = useState<EditOp>("menu");
+  const [editToggleStatus, setEditToggleStatus] = useState(true);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null);
+  const [highlightedPathIds, setHighlightedPathIds] = useState<Set<string>>(new Set());
+  const [transferring, setTransferring] = useState(false);
+  const [rowSyncError, setRowSyncError] = useState<string | null>(null);
 
-  const onDel = useCallback((id: string) => setDeletingId(id), []);
-  const onAddN = useCallback((id: string) => setAddingTo(id), []);
-  const onEditN = useCallback((id: string) => setEditingId(id), []);
+  const canSyncRows = !!columnMapping && !!rows && !!onRowsChange;
+
+  const publishRows = useCallback((nextRows: ExcelRow[], action: "add" | "edit" | "delete" | "transfer", label: string, affected = 1) => {
+    onRowsChange?.(nextRows, { source: "hierarchy", action, label, affected, target: stateKey });
+  }, [onRowsChange, stateKey]);
+
+  const searchResults = useMemo(
+    () => searchHierarchyPositions(data, searchQuery).slice(0, 12),
+    [data, searchQuery],
+  );
+
+  const selectSearchResult = useCallback((id: string) => {
+    const path = getPositionPath(data, id);
+    setSelectedNodeId(id);
+    setSelectedNodeIds((prev) => new Set(prev).add(id));
+    setActiveSearchResultId(id);
+    setHighlightedPathIds(new Set(path));
+    setLocalCollapsed(new Set());
+    if (path.length > 0) {
+      setViewRoot(path[0]);
+      setViewHistory([]);
+    }
+    setTimeout(() => rf.fitView({ padding: 0.3, duration: 300 }), 80);
+  }, [data, rf]);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setActiveSearchResultId(null);
+    setHighlightedPathIds(new Set());
+  }, []);
+
+  const openEdit = useCallback((id: string, op: EditOp, toggleStatusOnOpen = true) => {
+    setEditInitialOp(op);
+    setEditToggleStatus(toggleStatusOnOpen);
+    setEditingId(id);
+  }, []);
+
   const onToggle = useCallback((id: string) => {
     setLocalCollapsed((p) => {
       const n = new Set(p);
@@ -918,9 +1172,19 @@ function Inner({ data, onDataChange }: Props) {
   }, []);
 
   const graph = useMemo(
-    () => buildGraph(data, viewRoot, localCollapsed, onDel, onAddN, onEditN, onToggle, handleDrillDown, userCreatedIds.current),
+    () => buildGraph(
+      data,
+      viewRoot,
+      localCollapsed,
+      onToggle,
+      handleDrillDown,
+      userCreatedIds.current,
+      selectedNodeIds,
+      activeSearchResultId,
+      highlightedPathIds,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, viewRoot, localCollapsed, onDel, onAddN, onEditN, onToggle, handleDrillDown],
+    [data, viewRoot, localCollapsed, onToggle, handleDrillDown, selectedNodeIds, activeSearchResultId, highlightedPathIds],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
@@ -941,9 +1205,35 @@ function Inner({ data, onDataChange }: Props) {
 
   // Add
   const doAdd = useCallback(
-    ({ name, jobId, role, grade, geo, dept, isOpen }: NodePayload) => {
+    ({ name, jobId, role, grade, geo, dept, isOpen, extraFields }: NodePayload, addAnother = false) => {
       const pid = addingTo!;
-      const nid = `e${Date.now()}`;
+      const nid = jobId || `e${Date.now()}`;
+      setRowSyncError(null);
+      if (canSyncRows && columnMapping && rows) {
+        try {
+          const nextRows = addPositionRow(rows, columnMapping, {
+            employeeId: nid,
+            managerId: V[pid]?.id || "",
+            name,
+            role,
+            department: dept,
+            grade,
+            location: geo,
+            country: "",
+            region: "",
+            status: isOpen ? "Open" : "Filled",
+            extraFields,
+          });
+          publishRows(nextRows, "add", `Added ${isOpen ? jobId || "open position" : name} under ${V[pid]?.display_name || "selected manager"}`);
+          setSelectedNodeId(nid);
+          setSelectedNodeIds((prev) => new Set(prev).add(nid));
+          if (!addAnother) setAddingTo(null);
+          return;
+        } catch (err) {
+          setRowSyncError(err instanceof Error ? err.message : "Could not update mapped rows.");
+          return;
+        }
+      }
       userCreatedIds.current.add(nid);
       const displayName = isOpen ? (jobId || "Open Role") : name;
       const nv: NormalizedVertex = {
@@ -969,9 +1259,11 @@ function Inner({ data, onDataChange }: Props) {
         edges: nEdges,
         metrics: computeMetrics(nEdges),
       });
-      setAddingTo(null);
+      setSelectedNodeId(nid);
+      setSelectedNodeIds((prev) => new Set(prev).add(nid));
+      if (!addAnother) setAddingTo(null);
     },
-    [addingTo, V, dataEdges, data, pushState],
+    [addingTo, V, canSyncRows, columnMapping, rows, dataEdges, data, pushState, publishRows],
   );
 
   // Delete
@@ -988,27 +1280,109 @@ function Inner({ data, onDataChange }: Props) {
       } else {
         nEdges = nEdges.filter((e) => e.manager_temp_id !== id);
       }
-      pushState({
-        ...data,
-        vertices: nVerts,
-        edges: nEdges,
-        metrics: computeMetrics(nEdges),
+      if (canSyncRows && columnMapping && rows) {
+        const deletedEmployeeId = V[id]?.id;
+        const targetEmployeeId = target ? V[target]?.id || "" : "";
+        const childEmployeeIds = (m.children[id] || []).map((childId) => V[childId]?.id).filter((childId): childId is string => !!childId);
+        const nextRows = deletedEmployeeId
+          ? deletePositionRowsWithReassignment(rows, columnMapping, deletedEmployeeId, childEmployeeIds, targetEmployeeId)
+          : rows.map((row) => ({ ...row }));
+        publishRows(nextRows, "delete", `Removed ${V[id]?.display_name || "position"}`, 1);
+      } else {
+        pushState({
+          ...data,
+          vertices: nVerts,
+          edges: nEdges,
+          metrics: computeMetrics(nEdges),
+        });
+      }
+      setSelectedNodeId(null);
+      setSelectedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
       });
+      if (activeSearchResultId === id) {
+        setActiveSearchResultId(null);
+        setHighlightedPathIds(new Set());
+      }
       setDeletingId(null);
     },
-    [deletingId, V, dataEdges, data, pushState],
+    [deletingId, V, m.children, dataEdges, data, pushState, activeSearchResultId, canSyncRows, columnMapping, rows, publishRows],
   );
 
   // Edit save
   const doEditSave = useCallback(
     (newData: DashboardData) => {
-      pushState(newData);
+      setRowSyncError(null);
+      if (canSyncRows && columnMapping && rows && editingId) {
+        const oldEmployeeId = V[editingId]?.id || editingId;
+        const payload = positionPayloadFromVertex(newData, editingId);
+        if (payload) {
+          try {
+            const nextRows = editPositionRow(rows, columnMapping, oldEmployeeId, payload);
+            publishRows(nextRows, "edit", `Updated ${newData.vertices[editingId]?.display_name || "position"}`);
+          } catch (err) {
+            setRowSyncError(err instanceof Error ? err.message : "Could not update mapped rows.");
+            return;
+          }
+        } else {
+          pushState(newData);
+        }
+      } else {
+        pushState(newData);
+      }
       setEditingId(null);
     },
-    [pushState],
+    [V, canSyncRows, columnMapping, editingId, publishRows, pushState, rows],
   );
 
+  const applyMultiTransfer = useCallback((targetManagerId: string) => {
+    const sourceIds = getTopLevelTransferIds(data, [...selectedNodeIds]);
+    const validation = validateTransferTarget(data, sourceIds, targetManagerId);
+    if (!validation.ok) {
+      setRowSyncError(validation.reason);
+      return;
+    }
+    setRowSyncError(null);
+
+    if (canSyncRows && columnMapping && rows) {
+      try {
+        const nextRows = transferPositionRows(rows, columnMapping, data, sourceIds, targetManagerId);
+        publishRows(nextRows, "transfer", `Moved ${sourceIds.length} position${sourceIds.length === 1 ? "" : "s"}`, sourceIds.length);
+        setTransferring(false);
+        return;
+      } catch (err) {
+        setRowSyncError(err instanceof Error ? err.message : "Could not update mapped rows.");
+        return;
+      }
+    }
+
+    let nextEdges = dataEdges.filter((edge) => !sourceIds.includes(edge.employee_temp_id));
+    if (targetManagerId) {
+      nextEdges = [
+        ...nextEdges,
+        ...sourceIds.map((id) => ({
+          employee_temp_id: id,
+          manager_temp_id: targetManagerId,
+          edge_confidence: 1.0,
+        })),
+      ];
+    }
+    sourceIds.forEach((id) => userCreatedIds.current.add(id));
+    pushState({ ...data, edges: nextEdges, metrics: computeMetrics(nextEdges) });
+    setTransferring(false);
+  }, [canSyncRows, columnMapping, data, dataEdges, publishRows, pushState, rows, selectedNodeIds]);
+
   const orphans = getOrphans(V, m);
+  const selectedPositions = [...selectedNodeIds].filter((id) => !!V[id]);
+  const selectedNode = selectedNodeId && V[selectedNodeId] ? V[selectedNodeId] : selectedPositions[0] ? V[selectedPositions[0]] : null;
+  const activeActionId = selectedNodeId && selectedNodeIds.has(selectedNodeId) ? selectedNodeId : selectedPositions[0] || null;
+  const selectedIsRoot = !!activeActionId && m.basic.roots.includes(activeActionId);
+  const canUseSelection = selectedPositions.length === 1 && !!activeActionId;
+  const canTransferSelection = selectedPositions.length > 0;
+  const topLevelTransferIds = getTopLevelTransferIds(data, selectedPositions);
+  const nestedSelectionCount = selectedPositions.length - topLevelTransferIds.length;
 
   return (
     <div style={{ animation: "fade 0.4s ease" }}>
@@ -1021,17 +1395,89 @@ function Inner({ data, onDataChange }: Props) {
             {[...viewHistory, viewRoot].map((id, i) => (
               <span key={id}>
                 {i > 0 && <span className={styles.viewSep}> › </span>}
-                <span className={i === viewHistory.length ? styles.viewPathCurrent : styles.viewPathStep}>
+                <button
+                  type="button"
+                  className={`${styles.viewPathLink} ${i === viewHistory.length ? styles.viewPathCurrent : styles.viewPathStep} ${highlightedPathIds.has(id) ? styles.viewPathHighlighted : ""}`}
+                  onClick={() => handleBreadcrumbJump(id)}
+                >
                   {V[id]?.display_name ?? id}
                   {m.depth[id] !== undefined && (
                     <span className={styles.viewDepthTag}>L{m.depth[id]}</span>
                   )}
-                </span>
+                </button>
               </span>
             ))}
           </div>
         </div>
       )}
+      <div className={styles.commandBar}>
+        <div className={styles.searchArea}>
+          <div className={styles.searchBox}>
+            <span className={styles.searchIcon}>Search</span>
+            <input
+              className={styles.searchInput}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search name, role, ID, department, grade, geo..."
+            />
+            {searchQuery && (
+              <button className={styles.clearSearchBtn} onClick={clearSearch} title="Clear search">
+                Clear
+              </button>
+            )}
+          </div>
+          {searchQuery.trim() && (
+            <div className={styles.searchResults}>
+              {searchResults.length > 0 ? (
+                searchResults.map((result) => (
+                  <button
+                    key={result.id}
+                    className={`${styles.searchResult} ${activeSearchResultId === result.id ? styles.searchResultActive : ""}`}
+                    onClick={() => selectSearchResult(result.id)}
+                  >
+                    <strong>{result.title}</strong>
+                    <span>{result.subtitle}</span>
+                    <small>
+                      {result.context}
+                      {result.managerName ? ` · Manager: ${result.managerName}` : result.isUnassigned ? " · Unassigned" : ""}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className={styles.searchEmpty}>No matching positions</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className={styles.actionArea}>
+          <div className={styles.selectionSummary}>
+            {selectedNode ? (
+              <>
+                <b>{selectedPositions.length === 1 ? selectedNode.display_name : `${selectedPositions.length} positions selected`}</b>
+                <span>{selectedPositions.length === 1 ? selectedNode.role : `${topLevelTransferIds.length} top-level move source${topLevelTransferIds.length === 1 ? "" : "s"}`}</span>
+              </>
+            ) : (
+              <span>Select positions to use actions</span>
+            )}
+          </div>
+          <button className={styles.fitBtn} disabled={!canUseSelection} onClick={() => activeActionId && setAddingTo(activeActionId)}>
+            Add position
+          </button>
+          <button className={styles.fitBtn} disabled={!canUseSelection} onClick={() => activeActionId && openEdit(activeActionId, "toggle-status", false)}>
+            Edit details
+          </button>
+          <button className={styles.fitBtn} disabled={!canUseSelection || selectedIsRoot} onClick={() => activeActionId && setDeletingId(activeActionId)}>
+            Delete position
+          </button>
+          <button className={styles.fitBtn} disabled={!canTransferSelection} onClick={() => setTransferring(true)}>
+            Transfer
+          </button>
+          <button className={styles.fitBtn} disabled={!canUseSelection} onClick={() => activeActionId && openEdit(activeActionId, "toggle-status", true)}>
+            {selectedNode?.open_role ? "Mark filled" : "Mark open"}
+          </button>
+        </div>
+      </div>
       <div className={styles.toolbar}>
         <div className={styles.legend}>
           <span>
@@ -1061,32 +1507,16 @@ function Inner({ data, onDataChange }: Props) {
                 className={styles.dot}
                 style={{ background: "var(--accent)" }}
               />{" "}
-              Orphan
+              Unassigned
             </span>
           )}
         </div>
         <div className={styles.stats}>
-          <button
-            className={styles.fitBtn}
-            onClick={undo}
-            disabled={!canUndo}
-            title="Undo"
-          >
-            ↩ Undo
-          </button>
-          <button
-            className={styles.fitBtn}
-            onClick={redo}
-            disabled={!canRedo}
-            title="Redo"
-          >
-            ↪ Redo
-          </button>
-          <span className={styles.stat}>{Object.keys(V).length} nodes</span>
-          <span className={styles.stat}>{dataEdges.length} edges</span>
+          <span className={styles.stat}>{Object.keys(V).length} positions</span>
+          <span className={styles.stat}>{dataEdges.length} reporting lines</span>
           {orphans.length > 0 && (
             <span className={styles.statWarn}>
-              {orphans.length} orphan{orphans.length > 1 ? "s" : ""}
+              {orphans.length} unassigned
             </span>
           )}
           <button
@@ -1104,36 +1534,119 @@ function Inner({ data, onDataChange }: Props) {
         </div>
       </div>
 
-      <div className={styles.flowWrap}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          nodesDraggable
-          nodesConnectable={false}
-          fitView
-          fitViewOptions={{ padding: 0.3 }}
-          minZoom={0.1}
-          maxZoom={2.5}
-          proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ type: "straight" }}
-        >
-          <Background gap={20} size={1} color="rgba(0,0,0,0.04)" />
-          <Controls showInteractive={false} />
-          <MiniMap
-            nodeColor={(n: any) => {
-              const d = n.data as OrgNodeData;
-              if (d.isOrphan) return "#d97706";
-              if (d.depth === 0) return "#006b6b";
-              if (d.depth <= 2) return "#8a9a2f";
-              return "#3a4148";
+      {rowSyncError && <div className={styles.inlineError}>{rowSyncError}</div>}
+
+      <div className={styles.workbench}>
+        <div className={styles.flowWrap}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => {
+              setSelectedNodeId(node.id);
+              setSelectedNodeIds((prev) => new Set(prev).add(node.id));
             }}
-            maskColor="rgba(244,241,232,0.7)"
-            style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2 }}
-          />
-        </ReactFlow>
+            onPaneClick={() => setSelectedNodeId(null)}
+            nodeTypes={nodeTypes}
+            nodesDraggable
+            nodesConnectable={false}
+            fitView
+            fitViewOptions={{ padding: 0.3 }}
+            minZoom={0.1}
+            maxZoom={2.5}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{ type: "straight" }}
+          >
+            <Background gap={20} size={1} color="rgba(0,0,0,0.04)" />
+            <Controls showInteractive={false} />
+            <MiniMap
+              nodeColor={(n: any) => {
+                const d = n.data as OrgNodeData;
+                if (d.isOrphan) return "#d97706";
+                if (d.depth === 0) return "#006b6b";
+                if (d.depth <= 2) return "#8a9a2f";
+                return "#3a4148";
+              }}
+              maskColor="rgba(244,241,232,0.7)"
+              style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 2 }}
+            />
+          </ReactFlow>
+        </div>
+
+        <aside className={styles.selectionTray}>
+          <div className={styles.trayHeader}>
+            <div>
+              <b>Selection tray</b>
+              <span>{selectedPositions.length} position{selectedPositions.length === 1 ? "" : "s"}</span>
+            </div>
+            <button
+              className={styles.trayTextBtn}
+              disabled={!selectedPositions.length}
+              onClick={() => {
+                setSelectedNodeIds(new Set());
+                setSelectedNodeId(null);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          {nestedSelectionCount > 0 && (
+            <div className={styles.trayNotice}>
+              {nestedSelectionCount} nested selection{nestedSelectionCount === 1 ? "" : "s"} will be included inside a selected subtree.
+            </div>
+          )}
+          <div className={styles.trayList}>
+            {selectedPositions.length ? selectedPositions.map((id) => {
+              const v = V[id];
+              const managerId = m.parent[id];
+              return (
+                <div key={id} className={`${styles.trayItem} ${selectedNodeId === id ? styles.trayItemActive : ""}`}>
+                  <button
+                    className={styles.trayItemMain}
+                    onClick={() => {
+                      setSelectedNodeId(id);
+                      const path = getPositionPath(data, id);
+                      setHighlightedPathIds(new Set(path));
+                      setActiveSearchResultId(id);
+                    }}
+                  >
+                    <b>{v.display_name}</b>
+                    <span>{v.role || "Position"} · {v.id || id}</span>
+                    <small>
+                      {v.dept || "Unassigned department"} · {v.geo || "No geo"} · Manager: {managerId ? V[managerId]?.display_name : "Unassigned"} · L{m.depth[id] ?? "-"}
+                    </small>
+                  </button>
+                  <button
+                    className={styles.trayRemove}
+                    onClick={() => {
+                      setSelectedNodeIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(id);
+                        return next;
+                      });
+                      if (selectedNodeId === id) setSelectedNodeId(null);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              );
+            }) : (
+              <div className={styles.trayEmpty}>
+                Use search or click positions in the chart to build a working set.
+              </div>
+            )}
+          </div>
+          <div className={styles.trayActions}>
+            <button className={styles.fitBtn} disabled={!canUseSelection} onClick={() => activeActionId && setAddingTo(activeActionId)}>
+              Add direct report
+            </button>
+            <button className={styles.fitBtn} disabled={!canTransferSelection} onClick={() => setTransferring(true)}>
+              Transfer selected
+            </button>
+          </div>
+        </aside>
       </div>
 
       {addingTo && (
@@ -1141,6 +1654,7 @@ function Inner({ data, onDataChange }: Props) {
           mode="add"
           parentName={V[addingTo]?.display_name || addingTo}
           compMatrix={data.compMatrix}
+          columnMapping={columnMapping}
           onConfirm={doAdd}
           onCancel={() => setAddingTo(null)}
         />
@@ -1156,11 +1670,23 @@ function Inner({ data, onDataChange }: Props) {
           onCancel={() => setDeletingId(null)}
         />
       )}
+      {transferring && (
+        <MultiTransferModal
+          data={data}
+          topLevelIds={topLevelTransferIds}
+          nestedSelectionCount={nestedSelectionCount}
+          onApply={applyMultiTransfer}
+          onCancel={() => setTransferring(false)}
+        />
+      )}
       {editingId && (
         <EditModal
           nodeId={editingId}
           data={data}
           userCreatedIds={userCreatedIds.current}
+          columnMapping={columnMapping}
+          initialOp={editInitialOp}
+          toggleStatusOnOpen={editToggleStatus}
           onSave={doEditSave}
           onCancel={() => setEditingId(null)}
         />

@@ -9,21 +9,6 @@
 
 .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 4px; }
 .name { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.2; color: var(--ink); flex: 1; }
-.actions { display: flex; gap: 3px; opacity: 0; transition: opacity 0.15s; }
-.node:hover .actions { opacity: 1; }
-
-.addBtn, .delBtn, .editBtn {
-  width: 20px; height: 20px; border-radius: 3px; border: none;
-  font-size: 12px; font-weight: 700; line-height: 1;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
-}
-.addBtn { background: var(--olive); color: var(--cream); }
-.addBtn:hover { background: var(--olive-deep); }
-.delBtn { background: var(--red); color: var(--cream); font-size: 14px; }
-.delBtn:hover { background: #991b1b; }
-.editBtn { background: var(--teal); color: var(--cream); font-size: 11px; }
-.editBtn:hover { background: var(--teal-deep); }
 
 .role { font-size: 10px; color: var(--slate-2); line-height: 1.35; margin-bottom: 6px; }
 
@@ -50,6 +35,8 @@
 .collapseBtn:hover { background: var(--teal); }
 .drillBtn { background: var(--accent); }
 .drillBtn:hover { background: #b45309; }
+.pathDrillBtn { background: var(--teal); color: var(--cream); }
+.pathDrillBtn:hover { background: var(--teal-deep); }
 
 .isRoot { background: var(--teal); border-color: var(--teal-deep); }
 .isRoot .name, .isRoot .role { color: var(--cream); }
@@ -64,3 +51,19 @@
 .openRole .name { color: var(--accent); }
 
 .orphanNode { border-color: var(--red); border-style: dashed; background: #fef2f2; }
+
+.pathNode {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(217,119,6,0.14), 0 6px 18px rgba(0,0,0,0.12);
+}
+
+.selectedNode {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(0,107,107,0.18), 0 8px 24px rgba(0,0,0,0.16);
+}
+
+.searchTargetNode {
+  border-color: var(--accent);
+  background: #fffbeb;
+  animation: pulse 1.6s ease-in-out infinite;
+}

@@ -13,6 +13,29 @@
   position: relative;
 }
 
+.pane {
+  height: calc(100vh - 250px);
+  min-height: 640px;
+  border-radius: 8px;
+}
+
+.pane .header {
+  padding: 12px 14px;
+}
+
+.pane .permBar {
+  padding: 7px 14px;
+  flex-wrap: wrap;
+}
+
+.pane .messages {
+  padding: 16px 14px 8px;
+}
+
+.pane .inputBar {
+  padding: 12px 14px;
+}
+
 /* ── Header ───────────────────────────────────────────────────────────────── */
 
 .header {

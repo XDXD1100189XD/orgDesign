@@ -7,9 +7,6 @@ import styles from "./OrgNode.module.css";
 
 interface Props {
   data: OrgNodeData & {
-    onDelete?: (id: string) => void;
-    onAdd?: (parentId: string) => void;
-    onEdit?: (id: string) => void;
     onToggleCollapse?: (id: string) => void;
     onDrillDown?: (id: string) => void;
     collapsed?: boolean;
@@ -30,6 +27,9 @@ function OrgNode({ data }: Props) {
     isLeaf ? styles.isLeaf : "",
     data.openRole ? styles.openRole : "",
     data.isOrphan ? styles.orphanNode : "",
+    data.isPathHighlighted ? styles.pathNode : "",
+    data.isSelected ? styles.selectedNode : "",
+    data.isSearchTarget ? styles.searchTargetNode : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -43,40 +43,6 @@ function OrgNode({ data }: Props) {
           {data.openRole && <span className={styles.openBadge}>OPEN</span>}
           {data.unnamed ? <i>{data.displayName}</i> : data.displayName}
         </div>
-        <div className={styles.actions}>
-          <button
-            className={styles.editBtn}
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onEdit?.(data.tempId);
-            }}
-            title="Edit node"
-          >
-            ✎
-          </button>
-          <button
-            className={styles.addBtn}
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onAdd?.(data.tempId);
-            }}
-            title="Add report"
-          >
-            +
-          </button>
-          {!isRoot && (
-            <button
-              className={styles.delBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onDelete?.(data.tempId);
-              }}
-              title="Remove node"
-            >
-              ×
-            </button>
-          )}
-        </div>
       </div>
 
       <div className={styles.role}>{data.role}</div>
@@ -86,18 +52,18 @@ function OrgNode({ data }: Props) {
         {data.grade && <span className={styles.grade}>{data.grade}</span>}
         {data.geo && <span className={styles.geoBadge}>{data.geo}</span>}
         {data.isUserCreated && <span className={styles.userBadge}>USER</span>}
-        {data.isOrphan && <span className={styles.orphanBadge}>ORPHAN</span>}
+        {data.isOrphan && <span className={styles.orphanBadge}>UNASSIGNED</span>}
         {data.span > 0 && (
-          <span className={styles.spanBadge}>{data.span} ↓</span>
+          <span className={styles.spanBadge}>{data.span} direct</span>
         )}
         {(data.subtreeCount ?? 0) > 0 && (
-          <span className={styles.subtreeBadge}>{data.subtreeCount} ⬇</span>
+          <span className={styles.subtreeBadge}>{data.subtreeCount} below</span>
         )}
       </div>
 
       {(data.childCount ?? 0) > 0 && (
         <button
-          className={`${styles.collapseBtn} ${data.isBoundary ? styles.drillBtn : ""}`}
+          className={`${styles.collapseBtn} ${data.isBoundary ? styles.drillBtn : ""} ${data.isPathBoundary ? styles.pathDrillBtn : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             if (data.isBoundary || data.collapsed) {
@@ -108,17 +74,21 @@ function OrgNode({ data }: Props) {
           }}
           title={
             data.isBoundary
-              ? `Drill into subtree (${data.childCount} reports below)`
+              ? data.isPathBoundary
+                ? `Continue highlighted path (${data.childCount} direct reports below)`
+                : `Drill into subtree (${data.childCount} direct reports below)`
               : data.collapsed
-                ? `Open as head view`
+                ? "Open as head view"
                 : "Collapse subtree"
           }
         >
-          {data.isBoundary
-            ? `↓ ${data.childCount}`
-            : data.collapsed
-              ? `▸ ${data.childCount}`
-              : "▾"}
+          {data.isBoundary && data.isPathBoundary
+            ? `Continue ${data.childCount}`
+            : data.isBoundary
+              ? `Down ${data.childCount}`
+              : data.collapsed
+                ? `Open ${data.childCount}`
+                : "Collapse"}
         </button>
       )}
 

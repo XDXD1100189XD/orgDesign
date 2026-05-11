@@ -21,6 +21,8 @@ export interface ChangeSnapshot {
   columnMapping?: ColumnMapping | null;
   excelRows?: ExcelRow[] | null;
   studioRows?: ExcelRow[] | null;
+  asIsRows?: ExcelRow[] | null;
+  toBeRows?: ExcelRow[] | null;
 }
 
 export interface ChangeImpact {
@@ -60,6 +62,8 @@ export function cloneSnapshot(snapshot: ChangeSnapshot): ChangeSnapshot {
   if ("columnMapping" in snapshot) out.columnMapping = clone(snapshot.columnMapping ?? null);
   if ("excelRows" in snapshot) out.excelRows = clone(snapshot.excelRows ?? null);
   if ("studioRows" in snapshot) out.studioRows = clone(snapshot.studioRows ?? null);
+  if ("asIsRows" in snapshot) out.asIsRows = clone(snapshot.asIsRows ?? null);
+  if ("toBeRows" in snapshot) out.toBeRows = clone(snapshot.toBeRows ?? null);
   return out;
 }
 

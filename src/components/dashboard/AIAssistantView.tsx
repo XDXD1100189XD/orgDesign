@@ -254,6 +254,7 @@ interface Props {
   onRowMutation?: (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => void;
   onFieldMapping?: (field: string, column: string, newRows?: ExcelRow[]) => void;
   columnMapping?: import('@/lib/fieldDictionary').ColumnMapping | null;
+  variant?: 'full' | 'pane';
 }
 
 const SUGGESTIONS = [
@@ -265,7 +266,7 @@ const SUGGESTIONS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AIAssistantView({ data, rows, onRowsChange, onCreateChart, onDataChange, toBeData, onRowMutation, onFieldMapping, columnMapping }: Props) {
+export default function AIAssistantView({ data, rows, onRowsChange, onCreateChart, onDataChange, toBeData, onRowMutation, onFieldMapping, columnMapping, variant = 'full' }: Props) {
   const [displayMsgs,    setDisplayMsgs]    = useState<DisplayMsg[]>([]);
   const [rawMsgs,        setRawMsgs]        = useState<RawMessage[]>([]);
   const [input,          setInput]          = useState('');
@@ -824,7 +825,7 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
   }
 
   return (
-    <div className={styles.wrap}>
+    <div className={`${styles.wrap} ${variant === 'pane' ? styles.pane : ''}`}>
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>

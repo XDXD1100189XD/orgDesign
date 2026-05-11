@@ -240,6 +240,48 @@
 }
 .toBeResetBtn:hover { border-color: var(--red); color: var(--red); }
 
+.hierarchyStateHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.hierarchyStateHeader .sectionStateBar {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.hierarchyStateActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hierarchyStateActions .toBeResetBtn {
+  margin-left: 0;
+  height: 34px;
+}
+
+.hierarchyWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.hierarchyMainPane,
+.hierarchyAiPane {
+  min-width: 0;
+}
+
+.hierarchyAiPane {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+}
+
 /* ── To-Be empty state ── */
 .toBeEmpty {
   min-height: 400px;
@@ -452,6 +494,10 @@
   .headerRight { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 10px; }
   .tabs { overflow-x: auto; }
   .hierarchyDual { grid-template-columns: 1fr; }
+  .hierarchyStateHeader { flex-direction: column; }
+  .hierarchyStateActions { width: 100%; }
+  .hierarchyWorkspace { grid-template-columns: 1fr; }
+  .hierarchyAiPane { position: static; }
   .metricStrip { grid-template-columns: repeat(2, 1fr); }
   .metricCard:nth-child(2n) { border-right: none; }
 }
