@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { DashboardData, AIChartRequest } from "@/lib/types";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
@@ -456,7 +456,6 @@ export default function HomePage() {
   const asIsHierarchyRows = rowsForSlice("as-is");
   const toBeHierarchyRows = rowsForSlice("to-be");
   const switchHierarchySlice = (slice: StateSlice) => {
-    if (slice === "to-be" && !toBeData) handleCopyFromAsIs();
     setStudioSlice(slice);
   };
 
@@ -620,7 +619,6 @@ export default function HomePage() {
               <button
                 className={`${styles.sectionStateBtn} ${studioSlice === "to-be" ? styles.sectionStateBtnActive : ""}`}
                 onClick={() => switchHierarchySlice("to-be")}
-                title={!toBeData ? "Create To-Be from the current As-Is hierarchy" : undefined}
               >
                 To-Be
               </button>
@@ -650,30 +648,40 @@ export default function HomePage() {
         </div>
 
         <div className={styles.hierarchyWorkspace}>
-          <div className={styles.hierarchyMainPane}>
-            <HierarchyView
-              data={studioSlice === "as-is" ? data : (toBeData ?? data)}
-              onDataChange={studioSlice === "as-is" ? handleDataChange : handleToBeDataChange}
-              columnMapping={columnMapping}
-              rows={studioSlice === "as-is" ? asIsHierarchyRows : toBeHierarchyRows}
-              onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
-              stateKey={studioSlice}
+          {studioSlice === "to-be" && !toBeData ? (
+            <ToBeEmptyState
+              onCopy={handleCopyFromAsIs}
+              onUpload={() => setShowToBeUpload(true)}
+              hasAsIsFile={!!excelFile}
             />
-          </div>
-          <aside className={styles.hierarchyAiPane} aria-label="AI assistant">
-            <AIAssistantView
-              data={studioData}
-              rows={studioRows ?? []}
-              onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
-              onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
-              onDataChange={studioSlice === "as-is" ? handleCompDataChange : handleToBeDataChange}
-              toBeData={toBeData}
-              onRowMutation={handleRowMutation}
-              onFieldMapping={handleFieldMapping}
-              columnMapping={columnMapping}
-              variant="pane"
-            />
-          </aside>
+          ) : (
+            <>
+              <div className={styles.hierarchyMainPane}>
+                <HierarchyView
+                  data={studioSlice === "as-is" ? data : toBeData!}
+                  onDataChange={studioSlice === "as-is" ? handleDataChange : handleToBeDataChange}
+                  columnMapping={columnMapping}
+                  rows={studioSlice === "as-is" ? asIsHierarchyRows : toBeHierarchyRows}
+                  onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
+                  stateKey={studioSlice}
+                />
+              </div>
+              <aside className={styles.hierarchyAiPane} aria-label="AI assistant">
+                <AIAssistantView
+                  data={studioData}
+                  rows={studioRows ?? []}
+                  onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
+                  onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
+                  onDataChange={studioSlice === "as-is" ? handleCompDataChange : handleToBeDataChange}
+                  toBeData={toBeData}
+                  onRowMutation={handleRowMutation}
+                  onFieldMapping={handleFieldMapping}
+                  columnMapping={columnMapping}
+                  variant="pane"
+                />
+              </aside>
+            </>
+          )}
         </div>
 
         {false && data && (
