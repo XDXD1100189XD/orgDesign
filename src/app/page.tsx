@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { computeStateMetrics, fmtCost, type StateMetrics } from "@/lib/computeStateMetrics";
 import type { DashboardData, AIChartRequest } from "@/lib/types";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
@@ -41,50 +42,6 @@ const AIAssistantView = dynamic(
 type Tab = "summary" | "tree" | "table" | "readiness" | "advanced" | "studio" | "comp" | "ai";
 type StateSlice = "as-is" | "to-be";
 
-// ── Target state metric computation ──
-interface StateMetrics {
-  avgSpan: number;
-  layers: number;
-  totalCost: number | null;
-  icRatio: number;
-  headcount: number;
-  mgrRatio: number;
-}
-
-function computeStateMetrics(d: DashboardData): StateMetrics {
-  const m = d.metrics;
-  const total   = m.basic.total_nodes;
-  const mgrCnt  = m.management.manager_count;
-
-  let totalCost: number | null = null;
-  if (d.compMatrix) {
-    let cost = 0; let hasAny = false;
-    for (const v of Object.values(d.vertices)) {
-      if (!v.grade) continue;
-      const gradeMatrix = d.compMatrix[v.grade];
-      if (!gradeMatrix) continue;
-      const band = (v.geo ? gradeMatrix[v.geo] : null) ?? Object.values(gradeMatrix)[0] ?? null;
-      if (band) { cost += (band.min + band.max) / 2; hasAny = true; }
-    }
-    if (hasAny) totalCost = cost;
-  }
-
-  return {
-    avgSpan:   m.management.avg_span,
-    layers:    m.org_structure.org_depth,
-    totalCost,
-    icRatio:   total > 0 ? ((total - mgrCnt) / total) * 100 : 0,
-    headcount: total,
-    mgrRatio:  total > 0 ? (mgrCnt / total) * 100 : 0,
-  };
-}
-
-function fmtCost(n: number): string {
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `$${Math.round(n / 1e6)}M`;
-  if (n >= 1e3) return `$${Math.round(n / 1e3)}k`;
-  return `$${Math.round(n)}`;
-}
 
 const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "summary",  num: "01", label: "Summary" },
@@ -121,6 +78,9 @@ export default function HomePage() {
   // Change management state
   const [changeLog, setChangeLog] = useState<ChangeRecord[]>([]);
   const [showChangeDrawer, setShowChangeDrawer] = useState(false);
+
+  // ── Graph version — incremented on every row/hierarchy mutation ──
+  const [graphVersion, setGraphVersion] = useState(0);
 
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("summary");
@@ -292,6 +252,7 @@ export default function HomePage() {
     if (target === "to-be") setToBeMutatedRows(rows);
     if (nextData !== data) setData(nextData);
     if (nextToBeData !== toBeData) setToBeData(nextToBeData);
+    setGraphVersion(v => v + 1);
   }, [activeTab, appendChange, asIsMutatedRows, canBuildFromRows, columnMapping, currentSnapshot, data, excelRows, studioSlice, tableSlice, toBeData, toBeMutatedRows]);
 
   const handleRowMutation = useCallback(async (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => {
@@ -327,6 +288,7 @@ export default function HomePage() {
       setToBeMutatedRows(rows);
       setToBeData(nextToBe);
     }
+    setGraphVersion(v => v + 1);
   }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
 
   const handleFieldMapping = useCallback(async (field: string, column: string, newRows?: ExcelRow[]) => {
@@ -670,6 +632,7 @@ export default function HomePage() {
                 <AIAssistantView
                   data={studioData}
                   rows={studioRows ?? []}
+                  toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
                   onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
                   onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
                   onDataChange={studioSlice === "as-is" ? handleCompDataChange : handleToBeDataChange}
@@ -677,6 +640,8 @@ export default function HomePage() {
                   onRowMutation={handleRowMutation}
                   onFieldMapping={handleFieldMapping}
                   columnMapping={columnMapping}
+                  changeLog={changeLog}
+                  graphVersion={graphVersion}
                   variant="pane"
                 />
               </aside>
@@ -801,6 +766,7 @@ export default function HomePage() {
         <AIAssistantView
           data={data}
           rows={asIsHierarchyRows ?? []}
+          toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
           onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "as-is" })}
           onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
           onDataChange={handleCompDataChange}
@@ -808,6 +774,8 @@ export default function HomePage() {
           onRowMutation={handleRowMutation}
           onFieldMapping={handleFieldMapping}
           columnMapping={columnMapping}
+          changeLog={changeLog}
+          graphVersion={graphVersion}
         />
       </div>
       )}

@@ -237,3 +237,52 @@ export interface OrgNodeData {
   isPathHighlighted?: boolean;
   isPathBoundary?: boolean;
 }
+
+// ========================================================
+// Scenario planning types
+// ========================================================
+
+export type ScenarioAction =
+  | { type: 'reparent';    node_id: string; new_parent_id: string; reason?: string }
+  | { type: 'delete';      node_id: string; reassign_to?: string | null; reason?: string }
+  | { type: 'create';      parent_id: string; fields: Record<string, unknown>; reason?: string }
+  | { type: 'update';      node_id: string; fields: Record<string, unknown>; reason?: string }
+  | { type: 'toggle_open'; node_id: string; set_to: 'open' | 'filled'; reason?: string };
+
+export interface ActionPreview {
+  action_index: number;
+  type: ScenarioAction['type'];
+  summary: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+}
+
+export interface PlanMetrics {
+  avg_span: number;
+  layers: number;
+  total_cost: number | null;
+  headcount: number;
+  ic_ratio: number;
+  mgr_ratio: number;
+}
+
+export interface PlanImpact {
+  before: PlanMetrics;
+  after: PlanMetrics;
+  deltas: Record<string, string>;
+}
+
+export interface ValidatedPlan {
+  plan_id: string;
+  description: string;
+  target: 'as-is' | 'to-be';
+  actions: ScenarioAction[];
+  impact: PlanImpact;
+  action_previews: ActionPreview[];
+  affected_nodes: Array<{ node_id: string; name: string; change: string }>;
+  warnings: string[];
+  base_graph_version: number;
+  expires_at: string;
+  status: 'pending_approval' | 'applied' | 'cancelled' | 'expired';
+  created_at: string;
+}

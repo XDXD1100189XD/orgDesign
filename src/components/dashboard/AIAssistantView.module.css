@@ -664,6 +664,12 @@
 }
 .confirmOk:hover { background: #a93226; }
 
+.confirmTable { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+.confirmTable th, .confirmTable td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e5e4e2; }
+.confirmTable th { font-weight: 600; color: #555; }
+.confirmWarnList { margin: 6px 0; padding-left: 18px; font-size: 12px; color: #b34a00; }
+.confirmList { margin: 6px 0; padding-left: 18px; font-size: 12px; color: #333; }
+
 .compBandPreview {
   max-height: 220px;
   overflow-y: auto;

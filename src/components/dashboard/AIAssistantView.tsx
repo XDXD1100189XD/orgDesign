@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { DashboardData, AIChartRequest } from '@/lib/types';
+import type { DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
 import type { ExcelRow } from '@/lib/parseExcel';
 import { buildSystemContext } from '@/lib/aiContext';
+import { validateAndSimulate, applyActions } from '@/lib/scenarioPlanner';
 import styles from './AIAssistantView.module.css';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
@@ -247,6 +248,7 @@ function getFollowUps(text: string): string[] {
 interface Props {
   data: DashboardData | null;
   rows: ExcelRow[];
+  toBeRows?: ExcelRow[] | null;
   onRowsChange?: (rows: ExcelRow[], meta?: { source: 'ai-sql'; query?: string; affected?: number }) => void;
   onCreateChart?: (req: AIChartRequest) => void;
   onDataChange?: (d: DashboardData) => void;
@@ -254,6 +256,8 @@ interface Props {
   onRowMutation?: (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => void;
   onFieldMapping?: (field: string, column: string, newRows?: ExcelRow[]) => void;
   columnMapping?: import('@/lib/fieldDictionary').ColumnMapping | null;
+  changeLog?: import('@/lib/changeManagement').ChangeRecord[];
+  graphVersion?: number;
   variant?: 'full' | 'pane';
 }
 
@@ -266,7 +270,7 @@ const SUGGESTIONS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AIAssistantView({ data, rows, onRowsChange, onCreateChart, onDataChange, toBeData, onRowMutation, onFieldMapping, columnMapping, variant = 'full' }: Props) {
+export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, onCreateChart, onDataChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full' }: Props) {
   const [displayMsgs,    setDisplayMsgs]    = useState<DisplayMsg[]>([]);
   const [rawMsgs,        setRawMsgs]        = useState<RawMessage[]>([]);
   const [input,          setInput]          = useState('');
@@ -304,6 +308,16 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
   const onFieldMappingRef   = useRef(onFieldMapping);
   const columnMappingRef    = useRef(columnMapping);
   const chatRestoredRef     = useRef(false);
+  const planStoreRef        = useRef<Map<string, ValidatedPlan>>(new Map());
+  const graphVersionRef     = useRef(graphVersion);
+  const toBeRowsRef         = useRef(toBeRows ?? null);
+  const asIsRowsRef         = useRef(rows);
+  const changeLogRef        = useRef(changeLog);
+
+  const [pendingPlan, setPendingPlan] = useState<{
+    plan: ValidatedPlan;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
 
   dataRef.current           = data;
   toBeDataRef.current       = toBeData;
@@ -314,6 +328,10 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
   onRowMutationRef.current  = onRowMutation;
   onFieldMappingRef.current = onFieldMapping;
   columnMappingRef.current  = columnMapping;
+  graphVersionRef.current   = graphVersion;
+  toBeRowsRef.current       = toBeRows ?? null;
+  asIsRowsRef.current       = rows;
+  changeLogRef.current      = changeLog;
 
   // ── Sync rows → AlaSQL, restore chat on first load ──
   useEffect(() => {
@@ -656,6 +674,136 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
         } catch (e) { return { ok: false, error: String(e) }; }
       }
 
+      if (name === 'get_change_log') {
+        const limit = Math.min(Number(toolInput.limit ?? 5), 20);
+        const entries = changeLogRef.current.slice(-limit).reverse().map(e => ({
+          id:        e.id,
+          timestamp: e.timestamp,
+          scope:     e.scope,
+          action:    e.action,
+          title:     e.title,
+          summary:   e.summary,
+        }));
+        return { entries, count: entries.length };
+      }
+
+      if (name === 'get_comp_bands') {
+        const matrix = dataRef.current?.compMatrix;
+        if (!matrix) return { bands: [], note: 'No comp matrix defined yet.' };
+        const bands: Array<{ grade: string; geo: string; min: number; max: number; currency: string }> = [];
+        for (const [grade, geoMap] of Object.entries(matrix)) {
+          if (!geoMap) continue;
+          for (const [geo, band] of Object.entries(geoMap)) {
+            if (band) bands.push({ grade, geo, min: band.min, max: band.max, currency: band.currency });
+          }
+        }
+        return { bands };
+      }
+
+      if (name === 'plan_scenario') {
+        const mapping = columnMappingRef.current;
+        const d       = dataRef.current;
+        if (!mapping || !d) return { valid: false, error: 'No org data loaded.' };
+
+        const target = ((toolInput.target as string) ?? 'as-is') as 'as-is' | 'to-be';
+        if (target === 'to-be' && !toBeDataRef.current) {
+          return {
+            valid: false,
+            error: 'No To-Be scenario exists yet.',
+            suggestion: "Initialize a To-Be state first: go to the Hierarchy tab → To-Be and click \"Copy from As-Is\", then retry with target='to-be'.",
+          };
+        }
+
+        const sourceRows  = target === 'to-be' ? toBeRowsRef.current! : asIsRowsRef.current;
+        const description = (toolInput.description as string) ?? '';
+        const planId      = `plan_${Date.now().toString(36)}`;
+        const result      = validateAndSimulate(
+          toolInput.actions as ScenarioAction[],
+          sourceRows,
+          mapping,
+          d.compMatrix ?? null,
+          planId,
+          graphVersionRef.current,
+          target,
+          description,
+        );
+
+        if (!result.valid) return result;
+
+        planStoreRef.current.set(planId, result.plan);
+        const byType = result.plan.actions.reduce((acc: Record<string, number>, a) => {
+          acc[a.type] = (acc[a.type] ?? 0) + 1;
+          return acc;
+        }, {});
+
+        return {
+          valid:           true,
+          plan_id:         planId,
+          summary:         { total_actions: result.plan.actions.length, by_type: byType },
+          impact:          result.plan.impact,
+          action_previews: result.plan.action_previews,
+          affected_nodes:  result.plan.affected_nodes,
+          warnings:        result.plan.warnings,
+        };
+      }
+
+      if (name === 'apply_scenario') {
+        if (!writeModeRef.current) return { ok: false, error: 'Write Mode is disabled.' };
+
+        const plan = planStoreRef.current.get(toolInput.plan_id as string);
+        if (!plan) return { ok: false, error: 'Plan not found or expired. Call plan_scenario again.' };
+        if (plan.status === 'applied') return { ok: false, error: 'This plan was already applied.' };
+
+        if (new Date(plan.expires_at) < new Date()) {
+          planStoreRef.current.delete(plan.plan_id);
+          plan.status = 'expired';
+          return { ok: false, error: 'Plan expired (30-minute limit). Call plan_scenario again.' };
+        }
+
+        if (graphVersionRef.current !== plan.base_graph_version) {
+          planStoreRef.current.delete(plan.plan_id);
+          return {
+            ok: false,
+            error: 'The org chart changed after this scenario was planned. Please call plan_scenario again with the updated state.',
+          };
+        }
+
+        const confirmed = await new Promise<boolean>(resolve => setPendingPlan({ plan, resolve }));
+        if (!confirmed) {
+          plan.status = 'cancelled';
+          return { ok: false, error: 'User cancelled.' };
+        }
+
+        const applyMapping    = columnMappingRef.current!;
+        const sourceRows      = plan.target === 'to-be' ? toBeRowsRef.current! : asIsRowsRef.current;
+        const recheck         = validateAndSimulate(
+          plan.actions, sourceRows, applyMapping,
+          dataRef.current?.compMatrix ?? null,
+          plan.plan_id, plan.base_graph_version,
+          plan.target, plan.description,
+        );
+        if (!recheck.valid) {
+          plan.status = 'cancelled';
+          planStoreRef.current.delete(plan.plan_id);
+          return { ok: false, error: `Re-validation failed: ${(recheck as { error?: string }).error}. Plan cancelled.` };
+        }
+
+        const newRows = applyActions(plan.actions, sourceRows, applyMapping);
+        await onRowMutationRef.current?.(newRows, plan.target);
+
+        // Sync AlaSQL table so subsequent AI SQL queries see the updated state
+        alasql.tables[AI_TABLE].data = newRows.map((r: ExcelRow) => ({ ...r }));
+
+        plan.status = 'applied';
+        planStoreRef.current.delete(plan.plan_id);
+        return {
+          applied:          true,
+          plan_id:          plan.plan_id,
+          actions_executed: plan.actions.length,
+          final_metrics:    plan.impact.after,
+        };
+      }
+
       return { error: `Unknown tool: ${name}` };
     }
 
@@ -783,7 +931,15 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
       current = [...current, { role: 'user', content: toolResults }];
     }
 
-    setRawMsgs(current);
+    const safeHistory = (() => {
+      const last = current[current.length - 1];
+      if (last?.role === 'assistant' && Array.isArray(last.content)) {
+        const hasOrphan = (last.content as Array<{ type: string }>).some(b => b.type === 'tool_use');
+        if (hasOrphan) return current.slice(0, -1);
+      }
+      return current;
+    })();
+    setRawMsgs(safeHistory);
     setBusy(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, rawMsgs]);
@@ -802,6 +958,10 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
     set_comp_bands:     'Setting comp bands',
     write_employees:    'Writing employee data',
     set_field_mapping:  'Mapping field',
+    plan_scenario:      'Planning scenario',
+    apply_scenario:     'Applying scenario',
+    get_change_log:     'Reading change log',
+    get_comp_bands:     'Reading comp bands',
   };
 
   // Index of the last assistant message (for follow-up chips)
@@ -1107,6 +1267,64 @@ export default function AIAssistantView({ data, rows, onRowsChange, onCreateChar
             <div className={styles.confirmActions}>
               <button className={styles.confirmCancel} onClick={() => { pendingFieldMapping.resolve(false); setPendingFieldMapping(null); }}>Cancel</button>
               <button className={styles.confirmOk}     onClick={() => { pendingFieldMapping.resolve(true);  setPendingFieldMapping(null); }}>Apply mapping</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* apply_scenario HITL modal */}
+      {pendingPlan && (
+        <div className={styles.confirmOverlay}>
+          <div className={styles.confirmModal}>
+            <div className={styles.confirmTitle}>Apply scenario plan?</div>
+            <p className={styles.confirmWarn}>{pendingPlan.plan.description}</p>
+
+            <table className={styles.confirmTable}>
+              <thead><tr><th>#</th><th>Type</th><th>Summary</th></tr></thead>
+              <tbody>
+                {pendingPlan.plan.action_previews.map(p => (
+                  <tr key={p.action_index}>
+                    <td>{p.action_index + 1}</td>
+                    <td><code>{p.type}</code></td>
+                    <td>{p.summary}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <table className={styles.confirmTable}>
+              <thead><tr><th>Metric</th><th>Before</th><th>After</th></tr></thead>
+              <tbody>
+                <tr><td>Headcount</td><td>{pendingPlan.plan.impact.before.headcount}</td><td>{pendingPlan.plan.impact.after.headcount}</td></tr>
+                <tr><td>Avg span</td><td>{pendingPlan.plan.impact.before.avg_span.toFixed(1)}</td><td>{pendingPlan.plan.impact.after.avg_span.toFixed(1)}</td></tr>
+                <tr><td>Layers</td><td>{pendingPlan.plan.impact.before.layers}</td><td>{pendingPlan.plan.impact.after.layers}</td></tr>
+                {pendingPlan.plan.impact.before.total_cost != null && (
+                  <tr>
+                    <td>Total cost</td>
+                    <td>{pendingPlan.plan.impact.before.total_cost}</td>
+                    <td>{pendingPlan.plan.impact.after.total_cost}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            {pendingPlan.plan.affected_nodes.length > 0 && (
+              <ul className={styles.confirmList}>
+                {pendingPlan.plan.affected_nodes.map(n => (
+                  <li key={n.node_id}><strong>{n.name}</strong>: {n.change}</li>
+                ))}
+              </ul>
+            )}
+
+            {pendingPlan.plan.warnings.length > 0 && (
+              <ul className={styles.confirmWarnList}>
+                {pendingPlan.plan.warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
+
+            <div className={styles.confirmActions}>
+              <button className={styles.confirmCancel} onClick={() => { pendingPlan.resolve(false); setPendingPlan(null); }}>Cancel</button>
+              <button className={styles.confirmOk}     onClick={() => { pendingPlan.resolve(true);  setPendingPlan(null); }}>Apply</button>
             </div>
           </div>
         </div>

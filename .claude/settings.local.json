@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\org dashboard\" -Recurse -Filter \"*.ts\" -o File)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

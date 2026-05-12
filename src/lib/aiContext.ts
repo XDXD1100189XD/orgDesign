@@ -94,6 +94,17 @@ export function buildSystemContext(
     fieldBlock = `\n## Canonical field mapping\nMapped (${mapped.length}):\n${mappedLines}\nUnmapped (${unmapped.length}): ${unmappedList || 'none'}`;
   }
 
+  // Scenario planning block
+  const scenarioPlanningBlock = `
+## Scenario planning
+- Before calling \`plan_scenario\`, use \`find_employees\` to resolve all names to exact node_id (employee ID) values — never guess IDs
+- \`plan_scenario\` simulates only — always show the user the impact summary before calling \`apply_scenario\`
+- \`apply_scenario\` requires Write Mode and explicit user approval — never call without "yes, apply it" or equivalent explicit confirmation
+- \`update\` action fields must use exact Excel column names (same as \`run_sql\`) — call \`get_schema\` if unsure
+- If \`plan_scenario\` returns valid=false, fix the failing action and retry — do not give up after one failure
+- \`get_change_log\` is useful context before planning: call it to check what was last changed
+- \`get_comp_bands\` should be called when the scenario involves grade or geo changes, to warn if new assignments fall outside bands`;
+
   // Write mode block
   const writeModeBlock = writeMode
     ? `\n## Write mode: ENABLED\nAvailable write tools:\n- \`set_comp_bands\`: create/update comp matrix bands. Call \`run_sql\` first to analyze salary distributions.\n- \`write_employees\`: persist row mutations (INSERT/UPDATE/DELETE) to the org hierarchy. Always preview with \`run_sql SELECT\` first. Specify \`target\`: "as-is", "to-be", or "both".\n- \`set_field_mapping\`: map an unmapped canonical field to an existing column (\`source_column\`) or derive it via SQL (\`derived_sql\` returning \`employee_id\` + \`value\` columns, plus \`new_column_name\`). Always call \`get_column_values\` first.\nAll write operations show a confirmation dialog before applying.`
@@ -150,5 +161,5 @@ ${JSON.stringify(sample, null, 2)}
 - For person profiles, use a mini-report with clear sections
 - Format large numbers with commas: 1,234,567
 - Keep answers concise — no filler phrases like "Based on the data…" or "Great question!"
-${compBlock}${fieldBlock}${writeModeBlock}`;
+${compBlock}${fieldBlock}${writeModeBlock}${scenarioPlanningBlock}`;
 }

@@ -178,7 +178,93 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['field', 'rationale'],
     },
   },
+  {
+    name: 'get_change_log',
+    description: 'Returns recent change log entries (past org edits, scenario applications, comp updates) with before/after summaries. Default: last 5 entries. Useful before planning to understand recent history.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        limit: { type: 'number', description: 'Max entries to return (default 5, max 20)' },
+      },
+    },
+  },
+  {
+    name: 'get_comp_bands',
+    description: 'Returns the current compensation matrix (grade × geo bands with min/max/currency). Call before plan_scenario when the scenario involves grade or geo changes, to check if new grades have defined bands. Note: comp-band checking requires grade and geography to be present on each employee row.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'plan_scenario',
+    description: 'Validates and simulates a multi-step org restructuring plan WITHOUT applying it. Returns before/after impact metrics, per-action previews, affected nodes, and warnings. Store the plan_id — needed for apply_scenario. ALWAYS call find_employees first to resolve all mentioned names to exact node_id (employee ID) values before calling this tool.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        description: { type: 'string', description: 'Human-readable description of what this plan does' },
+        target: { type: 'string', enum: ['as-is', 'to-be'], description: 'Which state to plan against. If to-be state does not exist yet, this will fail with an error.' },
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type:          { type: 'string', enum: ['reparent', 'delete', 'create', 'update', 'toggle_open'] },
+              node_id:       { type: 'string', description: 'Employee ID of the target node (from find_employees)' },
+              new_parent_id: { type: 'string', description: 'reparent: employee ID of new manager' },
+              parent_id:     { type: 'string', description: 'create: employee ID of parent node' },
+              reassign_to:   { type: 'string', description: 'delete: employee ID to reassign orphaned direct children (null = leave as roots)' },
+              set_to:        { type: 'string', enum: ['open', 'filled'], description: 'toggle_open only' },
+              fields:        { type: 'object', description: 'create/update: keys must be exact Excel column names (call get_schema if unsure)' },
+              reason:        { type: 'string', description: 'Why this action is being taken' },
+            },
+            required: ['type'],
+          },
+        },
+      },
+      required: ['description', 'actions'],
+    },
+  },
+  {
+    name: 'apply_scenario',
+    description: 'Applies a validated plan by plan_id. Only call after showing the user the plan_scenario results and receiving explicit approval. Requires Write Mode. If the org chart was modified after plan_scenario was called, this will fail and the plan must be regenerated.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        plan_id: { type: 'string', description: 'The plan_id returned by plan_scenario' },
+      },
+      required: ['plan_id'],
+    },
+  },
 ];
+
+type AnyMessage = { role: string; content: unknown };
+
+function sanitizeMessages(messages: AnyMessage[]): AnyMessage[] {
+  const out: AnyMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+      const toolUseIds = (m.content as Array<{ type: string; id?: string }>)
+        .filter(b => b.type === 'tool_use')
+        .map(b => b.id!);
+      if (toolUseIds.length > 0) {
+        const next = messages[i + 1];
+        const hasResults =
+          next?.role === 'user' &&
+          Array.isArray(next.content) &&
+          toolUseIds.every(id =>
+            (next.content as Array<{ type: string; tool_use_id?: string }>).some(
+              b => b.type === 'tool_result' && b.tool_use_id === id
+            )
+          );
+        if (!hasResults) break;
+      }
+    }
+    out.push(m);
+  }
+  return out;
+}
 
 export async function POST(req: NextRequest) {
   const { messages, systemContext } = await req.json();
@@ -200,7 +286,7 @@ export async function POST(req: NextRequest) {
           model: process.env.AI_MODEL ?? 'claude-haiku-4-5-20251001',
           max_tokens: 4096,
           system: [{ type: 'text' as const, text: systemContext as string, cache_control: { type: 'ephemeral' } }],
-          messages: messages as Anthropic.MessageParam[],
+          messages: sanitizeMessages(messages as AnyMessage[]) as Anthropic.MessageParam[],
           tools: TOOLS,
         });
 
