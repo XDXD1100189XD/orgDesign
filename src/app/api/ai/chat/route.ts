@@ -117,7 +117,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'set_comp_bands',
     description:
-      'Creates or replaces compensation bands in the comp matrix. ONLY available when Write Mode is enabled by the user. Use this after analyzing salary distributions via run_sql to suggest grade × geography min/max bands. Always call run_sql first to derive percentile-based ranges from real data before calling this tool. Requires explicit user confirmation before applying.',
+      'Creates or replaces compensation bands in the comp matrix. ONLY available when Write Mode is enabled by the user. Use this after analyzing salary distributions via run_sql to suggest grade × geography min/max bands. Always call run_sql first to derive percentile-based ranges from real data before calling this tool. Requires explicit user confirmation before applying. If the user does not specify As-Is or To-Be, set target to "both".',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -139,6 +139,11 @@ const TOOLS: Anthropic.Tool[] = [
         replace_all: {
           type: 'boolean',
           description: 'If true, replaces ALL existing bands. If false (default), only adds or updates the specified bands.',
+        },
+        target: {
+          type: 'string',
+          enum: ['as-is', 'to-be', 'both'],
+          description: 'Which state to apply the bands to. Defaults to "both" when the user does not explicitly say As-Is or To-Be.',
         },
         rationale: {
           type: 'string',

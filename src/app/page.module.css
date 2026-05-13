@@ -488,6 +488,18 @@
 .metricDeltaPos  { color: #16a34a; font-weight: 600; }
 .metricDeltaNeg  { color: var(--red); font-weight: 600; }
 
+.targetAnalysisWarning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(146, 64, 14, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+  color: #7c2d12;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+}
+
 @media (max-width: 900px) {
   .shell { padding: 24px 18px 64px; }
   .header { flex-direction: column; gap: 16px; }

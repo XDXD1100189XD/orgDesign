@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
+import type { CompMatrix, DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
 import type { ExcelRow } from '@/lib/parseExcel';
 import { buildSystemContext } from '@/lib/aiContext';
 import { validateAndSimulate, applyActions } from '@/lib/scenarioPlanner';
+import { repairDeletedManagerReferences } from '@/lib/hierarchyRows';
+import { computeStateMetrics } from '@/lib/computeStateMetrics';
 import styles from './AIAssistantView.module.css';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
@@ -249,12 +251,18 @@ interface Props {
   data: DashboardData | null;
   rows: ExcelRow[];
   toBeRows?: ExcelRow[] | null;
-  onRowsChange?: (rows: ExcelRow[], meta?: { source: 'ai-sql'; query?: string; affected?: number }) => void;
+  stateId?: 'as-is' | 'to-be';
+  onRowsChange?: (rows: ExcelRow[], meta?: { source: 'ai-sql'; query?: string; affected?: number; label?: string }) => void;
   onCreateChart?: (req: AIChartRequest) => void;
   onDataChange?: (d: DashboardData) => void;
+  onCompMatrixChange?: (
+    matrix: CompMatrix,
+    target: 'as-is' | 'to-be' | 'both',
+    meta?: { source: 'ai'; replaceAll: boolean; bandsSet: number; rationale?: string },
+  ) => void;
   toBeData?: DashboardData | null;
   onRowMutation?: (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => void;
-  onFieldMapping?: (field: string, column: string, newRows?: ExcelRow[]) => void;
+  onFieldMapping?: (field: string, column: string, newRows?: ExcelRow[], target?: 'as-is' | 'to-be') => void;
   columnMapping?: import('@/lib/fieldDictionary').ColumnMapping | null;
   changeLog?: import('@/lib/changeManagement').ChangeRecord[];
   graphVersion?: number;
@@ -270,7 +278,7 @@ const SUGGESTIONS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, onCreateChart, onDataChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full' }: Props) {
+export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is', onRowsChange, onCreateChart, onDataChange, onCompMatrixChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full' }: Props) {
   const [displayMsgs,    setDisplayMsgs]    = useState<DisplayMsg[]>([]);
   const [rawMsgs,        setRawMsgs]        = useState<RawMessage[]>([]);
   const [input,          setInput]          = useState('');
@@ -284,6 +292,7 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
   const [pendingCompBands, setPendingCompBands] = useState<{
     bands: Array<{ grade: string; geo: string; min: number; max: number; currency: string }>;
     replaceAll: boolean;
+    target: 'as-is' | 'to-be' | 'both';
     rationale: string;
     resolve: (confirmed: boolean) => void;
   } | null>(null);
@@ -304,6 +313,7 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
   const onRowsChangeRef     = useRef(onRowsChange);
   const onCreateChartRef    = useRef(onCreateChart);
   const onDataChangeRef     = useRef(onDataChange);
+  const onCompMatrixChangeRef = useRef(onCompMatrixChange);
   const onRowMutationRef    = useRef(onRowMutation);
   const onFieldMappingRef   = useRef(onFieldMapping);
   const columnMappingRef    = useRef(columnMapping);
@@ -312,6 +322,7 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
   const graphVersionRef     = useRef(graphVersion);
   const toBeRowsRef         = useRef(toBeRows ?? null);
   const asIsRowsRef         = useRef(rows);
+  const stateIdRef          = useRef(stateId);
   const changeLogRef        = useRef(changeLog);
 
   const [pendingPlan, setPendingPlan] = useState<{
@@ -325,12 +336,14 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
   onRowsChangeRef.current   = onRowsChange;
   onCreateChartRef.current  = onCreateChart;
   onDataChangeRef.current   = onDataChange;
+  onCompMatrixChangeRef.current = onCompMatrixChange;
   onRowMutationRef.current  = onRowMutation;
   onFieldMappingRef.current = onFieldMapping;
   columnMappingRef.current  = columnMapping;
   graphVersionRef.current   = graphVersion;
   toBeRowsRef.current       = toBeRows ?? null;
   asIsRowsRef.current       = rows;
+  stateIdRef.current        = stateId;
   changeLogRef.current      = changeLog;
 
   // ── Sync rows → AlaSQL, restore chat on first load ──
@@ -422,8 +435,14 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         const raw  = toolInput.query as string;
         const verb = raw.trim().toUpperCase().split(/[\s(]/)[0];
         const isWrite = ['UPDATE', 'DELETE', 'INSERT'].includes(verb);
+        const beforeWriteRows: ExcelRow[] = isWrite
+          ? (alasql.tables[AI_TABLE]?.data ?? []).map((r: ExcelRow) => ({ ...r }))
+          : [];
 
         if (isWrite) {
+          if (!writeModeRef.current) {
+            return { ok: false, error: 'Write Mode is disabled. SQL mutations are preview-only until Write Mode is enabled.' };
+          }
           const confirmed = await new Promise<boolean>(resolve =>
             setPendingConfirm({ sql: raw, resolve })
           );
@@ -438,10 +457,19 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
           const result = alasql(sql);
           if (isWrite) {
             const updated: ExcelRow[] = alasql.tables[AI_TABLE]?.data ?? [];
-            onRowsChangeRef.current?.(updated, {
+            const repaired = columnMappingRef.current && verb === 'DELETE'
+              ? repairDeletedManagerReferences(beforeWriteRows, updated, columnMappingRef.current)
+              : { rows: updated.map((r: ExcelRow) => ({ ...r })), deletedCount: 0, reassignedCount: 0 };
+            if (repaired.reassignedCount > 0) {
+              alasql.tables[AI_TABLE].data = repaired.rows.map((r: ExcelRow) => ({ ...r }));
+            }
+            onRowsChangeRef.current?.(repaired.rows, {
               source: 'ai-sql',
               query: raw,
-              affected: typeof result === 'number' ? result : updated.length,
+              affected: typeof result === 'number' ? result + repaired.reassignedCount : repaired.rows.length,
+              label: repaired.reassignedCount > 0
+                ? `SQL delete applied; ${repaired.reassignedCount} direct report${repaired.reassignedCount === 1 ? '' : 's'} reassigned to the deleted manager's parent.`
+                : undefined,
             });
           }
           if (Array.isArray(result)) {
@@ -553,15 +581,20 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         const tbd = toBeDataRef.current;
         if (!d) return { error: 'No org data loaded' };
         if (!tbd) return { error: 'No To-Be state is loaded. Go to the Hierarchy tab and initialize a To-Be state first.' };
-        const extract = (dd: DashboardData) => ({
-          headcount:           dd.metrics.basic.total_nodes,
-          manager_count:       dd.metrics.management.manager_count,
-          avg_span:            +dd.metrics.management.avg_span.toFixed(2),
-          org_depth:           dd.metrics.org_structure.org_depth,
-          span_gini:           +((dd.metrics.management.span_gini ?? 0).toFixed(3)),
-          overloaded_managers: dd.metrics.management.overloaded ?? 0,
-          open_roles:          Object.values(dd.vertices).filter(v => v.open_role).length,
-        });
+        const extract = (dd: DashboardData) => {
+          const stateMetrics = computeStateMetrics(dd);
+          return {
+            headcount:           dd.metrics.basic.total_nodes,
+            manager_count:       dd.metrics.management.manager_count,
+            avg_span:            +dd.metrics.management.avg_span.toFixed(2),
+            org_depth:           dd.metrics.org_structure.org_depth,
+            span_gini:           +((dd.metrics.management.span_gini ?? 0).toFixed(3)),
+            overloaded_managers: dd.metrics.management.overloaded ?? 0,
+            open_roles:          Object.values(dd.vertices).filter(v => v.open_role).length,
+            total_cost:          stateMetrics.totalCost,
+            missing_comp_bands:  stateMetrics.missingCompBands,
+          };
+        };
         const asIs = extract(d);
         const toBe = extract(tbd);
         return {
@@ -574,6 +607,7 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
             org_depth:           toBe.org_depth           - asIs.org_depth,
             overloaded_managers: toBe.overloaded_managers - asIs.overloaded_managers,
             open_roles:          toBe.open_roles          - asIs.open_roles,
+            total_cost:          asIs.total_cost != null && toBe.total_cost != null ? toBe.total_cost - asIs.total_cost : null,
           },
         };
       }
@@ -588,10 +622,11 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         type Band = { grade: string; geo: string; min: number; max: number; currency: string };
         const bands = toolInput.bands as Band[];
         const replaceAll = !!(toolInput.replace_all as boolean | undefined);
+        const target = (toolInput.target as 'as-is' | 'to-be' | 'both' | undefined) ?? 'both';
         const rationale = (toolInput.rationale as string | undefined) ?? '';
 
         const confirmed = await new Promise<boolean>(resolve =>
-          setPendingCompBands({ bands, replaceAll, rationale, resolve })
+          setPendingCompBands({ bands, replaceAll, target, rationale, resolve })
         );
         if (!confirmed) return { ok: false, error: 'User cancelled.' };
 
@@ -603,8 +638,17 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
             [b.geo]: { min: b.min, max: b.max, currency: b.currency },
           };
         }
-        onDataChangeRef.current?.({ ...d, compMatrix: newMatrix });
-        return { ok: true, bands_set: bands.length, replace_all: replaceAll };
+        if (onCompMatrixChangeRef.current) {
+          onCompMatrixChangeRef.current(newMatrix, target, {
+            source: 'ai',
+            replaceAll,
+            bandsSet: bands.length,
+            rationale,
+          });
+        } else {
+          onDataChangeRef.current?.({ ...d, compMatrix: newMatrix });
+        }
+        return { ok: true, bands_set: bands.length, replace_all: replaceAll, target };
       }
 
       if (name === 'write_employees') {
@@ -620,14 +664,28 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         if (!confirmed) return { ok: false, error: 'User cancelled.' };
 
         try {
+          const beforeWriteRows: ExcelRow[] = (alasql.tables[AI_TABLE]?.data ?? []).map((r: ExcelRow) => ({ ...r }));
           const normalized = sql
             .replace(/\bFROM\s+data\b/gi,   `FROM ${AI_TABLE}`)
             .replace(/\bUPDATE\s+data\b/gi, `UPDATE ${AI_TABLE}`)
             .replace(/\bINTO\s+data\b/gi,   `INTO ${AI_TABLE}`);
           const affectedCount = alasql(normalized);
           const updatedRows: ExcelRow[] = alasql.tables[AI_TABLE]?.data ?? [];
-          onRowMutationRef.current?.(updatedRows, target);
-          return { ok: true, rows_affected: typeof affectedCount === 'number' ? affectedCount : updatedRows.length, target };
+          const isDelete = normalized.trim().toUpperCase().startsWith('DELETE');
+          const repaired = columnMappingRef.current && isDelete
+            ? repairDeletedManagerReferences(beforeWriteRows, updatedRows, columnMappingRef.current)
+            : { rows: updatedRows.map((r: ExcelRow) => ({ ...r })), deletedCount: 0, reassignedCount: 0 };
+          if (repaired.reassignedCount > 0) {
+            alasql.tables[AI_TABLE].data = repaired.rows.map((r: ExcelRow) => ({ ...r }));
+          }
+          onRowMutationRef.current?.(repaired.rows, target);
+          return {
+            ok: true,
+            rows_affected: typeof affectedCount === 'number' ? affectedCount + repaired.reassignedCount : repaired.rows.length,
+            rows_deleted: repaired.deletedCount,
+            rows_reassigned: repaired.reassignedCount,
+            target,
+          };
         } catch (e) { return { ok: false, error: String(e) }; }
       }
 
@@ -649,7 +707,7 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         if (!confirmed) return { ok: false, error: 'User cancelled.' };
 
         if (sourceColumn) {
-          onFieldMappingRef.current?.(field, sourceColumn);
+          onFieldMappingRef.current?.(field, sourceColumn, undefined, stateIdRef.current);
           return { ok: true, field, column: sourceColumn, method: 'existing_column' };
         }
 
@@ -668,8 +726,13 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
           }));
 
           alasql.tables[AI_TABLE].data = enriched.map((r: ExcelRow) => ({ ...r }));
-          onRowsChangeRef.current?.(enriched);
-          onFieldMappingRef.current?.(field, newColName!, enriched);
+          onRowsChangeRef.current?.(enriched, {
+            source: 'ai-sql',
+            query: derivedSql,
+            affected: enriched.length,
+            label: `Derived ${newColName!} for ${field}`,
+          });
+          onFieldMappingRef.current?.(field, newColName!, enriched, stateIdRef.current);
           return { ok: true, field, column: newColName, method: 'derived', rows_enriched: enriched.length };
         } catch (e) { return { ok: false, error: String(e) }; }
       }
@@ -715,13 +778,14 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
         }
 
         const sourceRows  = target === 'to-be' ? toBeRowsRef.current! : asIsRowsRef.current;
+        const targetData  = target === 'to-be' ? toBeDataRef.current : d;
         const description = (toolInput.description as string) ?? '';
         const planId      = `plan_${Date.now().toString(36)}`;
         const result      = validateAndSimulate(
           toolInput.actions as ScenarioAction[],
           sourceRows,
           mapping,
-          d.compMatrix ?? null,
+          targetData?.compMatrix ?? null,
           planId,
           graphVersionRef.current,
           target,
@@ -776,9 +840,10 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
 
         const applyMapping    = columnMappingRef.current!;
         const sourceRows      = plan.target === 'to-be' ? toBeRowsRef.current! : asIsRowsRef.current;
+        const targetData      = plan.target === 'to-be' ? toBeDataRef.current : dataRef.current;
         const recheck         = validateAndSimulate(
           plan.actions, sourceRows, applyMapping,
-          dataRef.current?.compMatrix ?? null,
+          targetData?.compMatrix ?? null,
           plan.plan_id, plan.base_graph_version,
           plan.target, plan.description,
         );
@@ -906,13 +971,19 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
           const r = result as { error?: string };
           if (r.error) { error = r.error; } else { summary = 'States compared ✓'; }
         } else if (tc.name === 'set_comp_bands') {
-          const r = result as { ok?: boolean; bands_set?: number; error?: string };
+          const r = result as { ok?: boolean; bands_set?: number; target?: string; error?: string };
           if (r.error) { error = r.error; }
-          else { summary = `✓ ${r.bands_set} comp band${r.bands_set !== 1 ? 's' : ''} saved to Comp Matrix`; }
+          else {
+            const targetLabel = r.target === 'both' ? 'As-Is and To-Be' : r.target === 'to-be' ? 'To-Be' : 'As-Is';
+            summary = `✓ ${r.bands_set} comp band${r.bands_set !== 1 ? 's' : ''} saved to ${targetLabel} Comp Matrix`;
+          }
         } else if (tc.name === 'write_employees') {
-          const r = result as { ok?: boolean; rows_affected?: number; target?: string; error?: string };
+          const r = result as { ok?: boolean; rows_affected?: number; rows_reassigned?: number; target?: string; error?: string };
           if (r.error) { error = r.error; }
-          else { summary = `✓ ${r.rows_affected ?? 0} row${r.rows_affected !== 1 ? 's' : ''} written to ${r.target} hierarchy`; }
+          else {
+            const reassigned = r.rows_reassigned ? ` · ${r.rows_reassigned} direct report${r.rows_reassigned === 1 ? '' : 's'} reassigned` : '';
+            summary = `✓ ${r.rows_affected ?? 0} row${r.rows_affected !== 1 ? 's' : ''} written to ${r.target} hierarchy${reassigned}`;
+          }
         } else if (tc.name === 'set_field_mapping') {
           const r = result as { ok?: boolean; field?: string; column?: string; method?: string; rows_enriched?: number; error?: string };
           if (r.error) { error = r.error; }
@@ -1201,6 +1272,10 @@ export default function AIAssistantView({ data, rows, toBeRows, onRowsChange, on
                 </tbody>
               </table>
             </div>
+            <p className={styles.confirmWarn}>
+              <strong>Target:</strong>{' '}
+              {pendingCompBands.target === 'both' ? 'As-Is and To-Be' : pendingCompBands.target === 'to-be' ? 'To-Be' : 'As-Is'}
+            </p>
             <p className={styles.confirmWarn}>
               {pendingCompBands.replaceAll
                 ? 'This will replace ALL existing bands in the Comp Matrix.'

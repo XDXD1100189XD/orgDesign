@@ -205,3 +205,44 @@ export function deletePositionRowsWithReassignment(
       : row;
   });
 }
+
+export function repairDeletedManagerReferences(
+  beforeRows: ExcelRow[],
+  afterRows: ExcelRow[],
+  mapping: ColumnMapping,
+): { rows: ExcelRow[]; deletedCount: number; reassignedCount: number } {
+  const idCol = employeeIdColumn(mapping);
+  const managerCol = managerIdColumn(mapping);
+  const beforeById = new Map<string, ExcelRow>();
+  beforeRows.forEach((row) => {
+    const id = String(row[idCol] ?? "").trim();
+    if (id) beforeById.set(id, row);
+  });
+
+  const afterIds = new Set(
+    afterRows
+      .map((row) => String(row[idCol] ?? "").trim())
+      .filter(Boolean),
+  );
+  const deletedIds = new Set([...beforeById.keys()].filter((id) => !afterIds.has(id)));
+
+  const resolveReplacementManager = (deletedId: string): string => {
+    const seen = new Set<string>();
+    let replacement = String(beforeById.get(deletedId)?.[managerCol] ?? "").trim();
+    while (replacement && deletedIds.has(replacement) && !seen.has(replacement)) {
+      seen.add(replacement);
+      replacement = String(beforeById.get(replacement)?.[managerCol] ?? "").trim();
+    }
+    return replacement && afterIds.has(replacement) ? replacement : "";
+  };
+
+  let reassignedCount = 0;
+  const rows = afterRows.map((row) => {
+    const managerId = String(row[managerCol] ?? "").trim();
+    if (!managerId || !deletedIds.has(managerId)) return { ...row };
+    reassignedCount += 1;
+    return { ...row, [managerCol]: resolveReplacementManager(managerId) };
+  });
+
+  return { rows, deletedCount: deletedIds.size, reassignedCount };
+}

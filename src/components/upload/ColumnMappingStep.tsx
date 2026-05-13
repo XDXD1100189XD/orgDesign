@@ -7,13 +7,18 @@ import styles from "./ColumnMappingStep.module.css";
 
 interface Props {
   headers: string[];
+  sourceHeaders?: string[];
+  derivedHeaders?: string[];
   mapping: ColumnMapping;
   onConfirm: (mapping: ColumnMapping) => void;
   onBack: () => void;
 }
 
-export default function ColumnMappingStep({ headers, mapping, onConfirm, onBack }: Props) {
+export default function ColumnMappingStep({ headers, sourceHeaders, derivedHeaders, mapping, onConfirm, onBack }: Props) {
   const [draft, setDraft] = useState<ColumnMapping>(() => ({ ...mapping }));
+  const groupedHeaders = !!sourceHeaders || !!derivedHeaders;
+  const source = sourceHeaders ?? headers;
+  const derived = derivedHeaders ?? [];
 
   const updateField = (field: CanonicalField, col: string | null) => {
     setDraft(prev => ({
@@ -69,7 +74,24 @@ export default function ColumnMappingStep({ headers, mapping, onConfirm, onBack 
                       onChange={e => updateField(field as CanonicalField, e.target.value || null)}
                     >
                       <option value="">— None —</option>
-                      {headers.map(h => (
+                      {groupedHeaders ? (
+                        <>
+                          {source.length > 0 && (
+                            <optgroup label="Source">
+                              {source.map(h => (
+                                <option key={h} value={h}>{h}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {derived.length > 0 && (
+                            <optgroup label="Derived">
+                              {derived.map(h => (
+                                <option key={h} value={h}>{h}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      ) : headers.map(h => (
                         <option key={h} value={h}>{h}</option>
                       ))}
                     </select>

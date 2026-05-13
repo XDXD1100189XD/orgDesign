@@ -30,6 +30,9 @@ export function buildHierarchyFromMapping(
   const gradeCol   = mapping['Compensation Grade'].column;
   const deptCol    = mapping['Department Name'].column;
   const statusCol  = mapping['Position Status'].column;
+  const locationCol = mapping['Location'].column;
+  const countryCol = mapping['Country'].column;
+  const regionCol = mapping['Region'].column;
 
   const vertices: Record<string, NormalizedVertex> = {};
   const empIdToTempId = new Map<string, string>();
@@ -56,6 +59,7 @@ export function buildHierarchyFromMapping(
       grade:        cellStr(row, gradeCol) || null,
       unnamed:      !name,
       dept:         cellStr(row, deptCol) || null,
+      geo:          cellStr(row, locationCol) || cellStr(row, countryCol) || cellStr(row, regionCol) || null,
       open_role:    statusRaw ? isOpenPosition(statusRaw) : false,
     };
   });

@@ -7,6 +7,7 @@ import {
   deletePositionRowsWithReassignment,
   editPositionRow,
   getTopLevelTransferIds,
+  repairDeletedManagerReferences,
   transferPositionRows,
   validateTransferTarget,
   type HierarchyPositionPayload,
@@ -146,6 +147,18 @@ test("deletePositionRowsWithReassignment removes the employee row and keeps reas
   assert.equal(nextRows.find((row) => row.employee_id === "E-3")?.manager_id, "E-1");
   assert.equal(nextRows.find((row) => row.employee_id === "E-4")?.manager_id, "E-1");
   assert.equal(baseRows.find((row) => row.employee_id === "E-3")?.manager_id, "E-2");
+});
+
+test("repairDeletedManagerReferences reassigns direct reports after SQL deletes managers", () => {
+  const rowsAfterSqlDelete = baseRows.filter((row) => row.employee_id !== "E-2");
+
+  const repaired = repairDeletedManagerReferences(baseRows, rowsAfterSqlDelete, mapping);
+
+  assert.equal(repaired.deletedCount, 1);
+  assert.equal(repaired.reassignedCount, 2);
+  assert.equal(repaired.rows.find((row) => row.employee_id === "E-3")?.manager_id, "E-1");
+  assert.equal(repaired.rows.find((row) => row.employee_id === "E-4")?.manager_id, "E-1");
+  assert.equal(rowsAfterSqlDelete.find((row) => row.employee_id === "E-3")?.manager_id, "E-2");
 });
 
 test("row helpers return independent arrays so state slices can stay isolated", () => {

@@ -1,4 +1,5 @@
 import type { ColumnMapping } from "./fieldDictionary";
+import type { OrgDataset } from "./orgDataset";
 import type { ExcelRow } from "./parseExcel";
 import type { DashboardData } from "./types";
 
@@ -16,6 +17,7 @@ export type ChangeAction =
   | "revert";
 
 export interface ChangeSnapshot {
+  dataset?: OrgDataset | null;
   data?: DashboardData | null;
   toBeData?: DashboardData | null;
   columnMapping?: ColumnMapping | null;
@@ -57,6 +59,7 @@ function clone<T>(value: T): T {
 
 export function cloneSnapshot(snapshot: ChangeSnapshot): ChangeSnapshot {
   const out: ChangeSnapshot = {};
+  if ("dataset" in snapshot) out.dataset = clone(snapshot.dataset ?? null);
   if ("data" in snapshot) out.data = clone(snapshot.data ?? null);
   if ("toBeData" in snapshot) out.toBeData = clone(snapshot.toBeData ?? null);
   if ("columnMapping" in snapshot) out.columnMapping = clone(snapshot.columnMapping ?? null);

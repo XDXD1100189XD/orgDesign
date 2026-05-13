@@ -643,9 +643,11 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
   const configLabel = config.rowField
     ? `${AGG_LABELS[config.aggFn]}${config.valueField ? ` of ${config.valueField}` : ''} by ${config.rowField}${config.colField ? ` × ${config.colField}` : ''}`
     : 'Configure your pivot above';
+  const hasInput = Boolean(file || propRows?.length);
+  const datasetLabel = file?.name ?? 'Current state';
 
-  // ── No file state ──
-  if (!file) {
+  // No dataset state
+  if (!hasInput) {
     return (
       <div className={styles.emptyState}>
         <div className={styles.emptyIcon}>⊞</div>
@@ -659,7 +661,7 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
     return (
       <div className={styles.emptyState}>
         <div className={styles.asSpin} />
-        <div className={styles.emptySub}>Loading {file.name}…</div>
+        <div className={styles.emptySub}>Loading {datasetLabel}…</div>
       </div>
     );
   }
@@ -681,7 +683,7 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
         <div className={styles.studioHeader}>
           <div className={styles.studioTitle}>Analytics Studio</div>
           <div className={styles.studioSub}>
-            {file.name} · {rows.length.toLocaleString()} rows · {fields.length} fields
+            {datasetLabel} · {rows.length.toLocaleString()} rows · {fields.length} fields
             {derivedFields.length > 0 && ` + ${derivedFields.length} derived`}
           </div>
         </div>

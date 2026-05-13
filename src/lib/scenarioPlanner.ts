@@ -314,6 +314,14 @@ export function validateAndSimulate(
     warnings.push(`Top-level nodes (roots) increase from ${beforeData.metrics.basic.root_count} to ${afterData.metrics.basic.root_count} — some nodes may become disconnected.`);
   }
 
+  if (afterMetrics.missingCompBands.length > 0) {
+    const sample = afterMetrics.missingCompBands
+      .slice(0, 5)
+      .map((band) => `${band.employeeId}: ${band.grade} x ${band.geo ?? 'blank geo'}`)
+      .join(', ');
+    warnings.push(`Total cost cannot be fully calculated because ${afterMetrics.missingCompBands.length} role(s) have no compensation band (${sample}).`);
+  }
+
   const now = new Date();
   const plan: ValidatedPlan = {
     plan_id: planId,

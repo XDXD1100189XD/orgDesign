@@ -380,9 +380,10 @@ function SpanChart({ layerStats }: { layerStats: LayerStat[] }) {
 interface Props {
   data: DashboardData;
   file?: File | null;
+  sourceRows?: ExcelRow[];
 }
 
-export default function AdvancedAnalyticsView({ data, file }: Props) {
+export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props) {
   const [rows, setRows] = useState<ExcelRow[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
@@ -392,6 +393,13 @@ export default function AdvancedAnalyticsView({ data, file }: Props) {
   );
 
   useEffect(() => {
+    if (sourceRows) {
+      setRows(sourceRows);
+      setHeaders(sourceRows.length > 0 ? Object.keys(sourceRows[0]) : []);
+      setExcelLoading(false);
+      setExcelError(null);
+      return;
+    }
     if (!file) { setRows([]); setHeaders([]); return; }
     setExcelLoading(true);
     setExcelError(null);
@@ -405,7 +413,7 @@ export default function AdvancedAnalyticsView({ data, file }: Props) {
         setExcelError(err instanceof Error ? err.message : 'Parse error');
         setExcelLoading(false);
       });
-  }, [file]);
+  }, [file, sourceRows]);
 
   const colMap     = useMemo(() => detectCostColumns(headers), [headers]);
   const grossCol   = useMemo(() => detectColumn(headers, GROSS_SALARY_ALIASES), [headers]);

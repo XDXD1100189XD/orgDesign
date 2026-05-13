@@ -4,6 +4,7 @@ export interface StateMetrics {
   avgSpan: number;
   layers: number;
   totalCost: number | null;
+  missingCompBands: Array<{ employeeId: string; grade: string; geo: string | null }>;
   icRatio: number;
   headcount: number;
   mgrRatio: number;
@@ -16,22 +17,31 @@ export function computeStateMetrics(d: DashboardData, compMatrix?: CompMatrix | 
 
   const matrix = compMatrix ?? d.compMatrix ?? null;
   let totalCost: number | null = null;
-  if (matrix) {
+  const missingCompBands: StateMetrics["missingCompBands"] = [];
+  if (matrix && Object.keys(matrix).length > 0) {
     let cost = 0; let hasAny = false;
     for (const v of Object.values(d.vertices)) {
       if (!v.grade) continue;
       const gradeMatrix = matrix[v.grade];
-      if (!gradeMatrix) continue;
-      const band = (v.geo ? gradeMatrix[v.geo] : null) ?? Object.values(gradeMatrix)[0] ?? null;
+      if (!gradeMatrix) {
+        missingCompBands.push({ employeeId: v.id ?? v.display_name, grade: v.grade, geo: v.geo ?? null });
+        continue;
+      }
+      const band = v.geo ? (gradeMatrix[v.geo] ?? null) : (Object.values(gradeMatrix)[0] ?? null);
+      if (v.geo && !band) {
+        missingCompBands.push({ employeeId: v.id ?? v.display_name, grade: v.grade, geo: v.geo });
+        continue;
+      }
       if (band) { cost += (band.min + band.max) / 2; hasAny = true; }
     }
-    if (hasAny) totalCost = cost;
+    if (hasAny && missingCompBands.length === 0) totalCost = cost;
   }
 
   return {
     avgSpan:   m.management.avg_span,
     layers:    m.org_structure.org_depth,
     totalCost,
+    missingCompBands,
     icRatio:   total > 0 ? ((total - mgrCnt) / total) * 100 : 0,
     headcount: total,
     mgrRatio:  total > 0 ? (mgrCnt / total) * 100 : 0,

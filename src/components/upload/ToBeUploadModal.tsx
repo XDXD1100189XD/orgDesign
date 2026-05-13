@@ -51,19 +51,30 @@ export default function ToBeUploadModal({ asIsHeaders, asIsMapping, asIsData, on
       if (rows.length === 0) throw new Error('The file appears to be empty.');
       const headers = Object.keys(rows[0]);
 
-      // Hard check: required mapped columns must exist in To-Be
+      // Hard check: required hierarchy columns must exist in To-Be. Optional
+      // mapped columns may be As-Is-only derived fields and can be remapped.
       const hard: string[] = [];
       const soft: string[] = [];
 
       // Only check columns that are actually mapped in As-Is
       if (asIsMapping) {
-        const mappedAsIsCols = Object.values(asIsMapping)
-          .map(e => e.column)
+        const requiredAsIsCols = ['Employee ID', 'Manager ID']
+          .map(field => asIsMapping[field as keyof ColumnMapping]?.column)
           .filter((c): c is string => c !== null);
-        const missingMapped = mappedAsIsCols.filter(c => !headers.includes(c));
-        if (missingMapped.length > 0) {
+        const missingRequired = requiredAsIsCols.filter(c => !headers.includes(c));
+        if (missingRequired.length > 0) {
           hard.push(
-            `Missing ${missingMapped.length} column(s) that are mapped in As-Is: ${missingMapped.slice(0, 4).join(', ')}${missingMapped.length > 4 ? ` (+${missingMapped.length - 4} more)` : ''}`
+            `Missing required hierarchy column(s) from As-Is mapping: ${missingRequired.join(', ')}`
+          );
+        }
+
+        const optionalAsIsCols = Object.values(asIsMapping)
+          .map(e => e.column)
+          .filter((c): c is string => c !== null && !requiredAsIsCols.includes(c));
+        const missingOptional = optionalAsIsCols.filter(c => !headers.includes(c));
+        if (missingOptional.length > 0) {
+          soft.push(
+            `${missingOptional.length} optional mapped column(s) are missing and can be remapped for To-Be: ${missingOptional.slice(0, 4).join(', ')}${missingOptional.length > 4 ? ` (+${missingOptional.length - 4} more)` : ''}`
           );
         }
       } else if (asIsHeaders.length > 0) {

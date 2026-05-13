@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { computeStateMetrics, fmtCost, type StateMetrics } from "@/lib/computeStateMetrics";
-import type { DashboardData, AIChartRequest } from "@/lib/types";
+import type { CompMatrix, DashboardData, AIChartRequest } from "@/lib/types";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
 import UploadModal from "@/components/upload/UploadModal";
@@ -20,6 +20,15 @@ import {
   type ChangeRecord,
   type ChangeScope,
 } from "@/lib/changeManagement";
+import {
+  applyOrgMutation,
+  cloneOrgDataset,
+  createOrgDataset,
+  stateHeadersForMapping,
+  type EditableOrgStateId,
+  type OrgDataset,
+  type OrgMutationSource,
+} from "@/lib/orgDataset";
 import dynamic from "next/dynamic";
 import styles from "./page.module.css";
 
@@ -41,6 +50,7 @@ const AIAssistantView = dynamic(
 
 type Tab = "summary" | "tree" | "table" | "readiness" | "advanced" | "studio" | "comp" | "ai";
 type StateSlice = "as-is" | "to-be";
+type CompTarget = StateSlice | "both";
 
 
 const BASE_TABS: { key: Tab; num: string; label: string }[] = [
@@ -53,8 +63,24 @@ const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "ai",       num: "08", label: "AI Assistant" },
 ];
 const READINESS_TAB = { key: "readiness" as Tab, num: "07", label: "Data Readiness" };
+const ORG_DATASET_STORAGE_KEY = "org-dashboard:dataset:v1";
+
+const toOrgState = (slice: StateSlice): EditableOrgStateId => slice === "to-be" ? "toBe" : "asIs";
+const toSlice = (state: EditableOrgStateId): StateSlice => state === "toBe" ? "to-be" : "as-is";
+
+function labelForSource(source?: string): string {
+  return source === "employees-table" ? "Employees table"
+    : source === "analytics-sql" ? "Analytics SQL"
+      : source === "analytics-reset" ? "Analytics Studio"
+        : source === "ai-sql" ? "Agentic AI SQL"
+          : source === "hierarchy" ? "Hierarchy"
+            : source === "comp" ? "Comp setup"
+              : source === "mapping" ? "Field mapping"
+                : "Employee rows";
+}
 
 export default function HomePage() {
+  const [dataset, setDataset] = useState<OrgDataset | null>(null);
   // ── As-Is state ──
   const [data, setData] = useState<DashboardData | null>(null);
   const [excelFile, setExcelFile] = useState<File | null>(null);
@@ -62,6 +88,7 @@ export default function HomePage() {
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [showRemapping, setShowRemapping] = useState(false);
+  const [remapState, setRemapState] = useState<EditableOrgStateId>("asIs");
 
   // ── To-Be state ──
   const [toBeData, setToBeData] = useState<DashboardData | null>(null);
@@ -87,10 +114,56 @@ export default function HomePage() {
   const [downloading] = useState(false);
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
+  const [compTarget, setCompTarget] = useState<CompTarget>("as-is");
   const [tableJumpId, setTableJumpId] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
   const TABS = excelFile ? [...BASE_TABS, READINESS_TAB] : BASE_TABS;
+
+  const syncLegacyFromDataset = useCallback((next: OrgDataset) => {
+    setData(next.states.asIs.data);
+    setExcelRows(next.baselineRows);
+    setExcelHeaders(next.baselineHeaders);
+    setColumnMapping(next.states.asIs.mapping);
+    setAsIsMutatedRows(next.states.asIs.rows);
+    setToBeData(next.states.toBe?.data ?? null);
+    setToBeMutatedRows(next.states.toBe?.rows ?? null);
+    setChangeLog(next.changeLog);
+    setGraphVersion(next.revision);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(ORG_DATASET_STORAGE_KEY);
+    } catch {
+      // Storage access can fail in private mode; uploaded data still lives in memory.
+    }
+  }, []);
+
+  const commitDataset = useCallback((
+    nextBase: OrgDataset,
+    meta: {
+      scope: ChangeScope;
+      action: "initialize" | "upload" | "copy" | "reset" | "hierarchy" | "metadata" | "compensation" | "mapping" | "rows" | "revert";
+      title: string;
+      summary: string;
+      details?: string[];
+    },
+  ) => {
+    const before = dataset ? cloneOrgDataset(dataset) : null;
+    const change = createChangeRecord({
+      scope: meta.scope,
+      action: meta.action,
+      title: meta.title,
+      summary: meta.summary,
+      details: meta.details,
+      before: { dataset: before },
+      after: { dataset: nextBase },
+    });
+    const next = { ...nextBase, changeLog: [...nextBase.changeLog, change] };
+    setDataset(next);
+    syncLegacyFromDataset(next);
+  }, [dataset, syncLegacyFromDataset]);
 
   const appendChange = useCallback((change: ChangeRecord) => {
     setChangeLog((prev) => [...prev, change]);
@@ -135,18 +208,44 @@ export default function HomePage() {
   }, []);
 
   const handleExcelParsed = useCallback((rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => {
-    setExcelRows(rows);
-    setExcelHeaders(headers);
-    appendChange(createChangeRecord({
-      scope: "mapping",
-      action: "mapping",
-      before: currentSnapshot(),
-      after: { data, toBeData, columnMapping: mapping, excelRows: rows, studioRows: asIsMutatedRows, asIsRows: asIsMutatedRows, toBeRows: toBeMutatedRows },
-    }));
-    setColumnMapping(mapping);
-  }, [appendChange, asIsMutatedRows, currentSnapshot, data, toBeData, toBeMutatedRows]);
+    const created = createOrgDataset({
+      rows,
+      headers,
+      mapping,
+      sourceFileName: excelFile?.name,
+    });
+    const change = createChangeRecord({
+      scope: "as-is",
+      action: "initialize",
+      title: "Dataset initialized",
+      summary: `${rows.length.toLocaleString()} uploaded rows stored as immutable baseline and editable As-Is.`,
+      details: ["Baseline rows are preserved separately from the editable As-Is state."],
+      before: { dataset: dataset ? cloneOrgDataset(dataset) : null },
+      after: { dataset: created },
+    });
+    const next = { ...created, changeLog: [change] };
+    setDataset(next);
+    syncLegacyFromDataset(next);
+    setActiveTab("summary");
+  }, [dataset, excelFile, syncLegacyFromDataset]);
 
   const handleRemappingConfirm = useCallback(async (newMapping: ColumnMapping) => {
+    if (dataset) {
+      setShowRemapping(false);
+      const next = applyOrgMutation(dataset, {
+        target: remapState,
+        source: "mapping",
+        action: "updateMapping",
+        mapping: newMapping,
+      });
+      commitDataset(next, {
+        scope: "mapping",
+        action: "mapping",
+        title: `${remapState === "asIs" ? "As-Is" : "To-Be"} field mapping updated`,
+        summary: "The selected state was rebuilt with the updated field mapping.",
+      });
+      return;
+    }
     setShowRemapping(false);
     const sourceRows = asIsMutatedRows ?? excelRows;
     if (!sourceRows) return;
@@ -160,7 +259,7 @@ export default function HomePage() {
     }));
     setData(nextData);
     setColumnMapping(newMapping);
-  }, [appendChange, asIsMutatedRows, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
+  }, [appendChange, asIsMutatedRows, commitDataset, currentSnapshot, data, dataset, excelRows, remapState, toBeData, toBeMutatedRows]);
 
   const handleDataChange = useCallback((d: DashboardData) => {
     appendChange(createChangeRecord({
@@ -182,6 +281,23 @@ export default function HomePage() {
     setToBeData(d);
   }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeMutatedRows]);
   const handleCompDataChange = useCallback((d: DashboardData) => {
+    if (dataset) {
+      const next = applyOrgMutation(dataset, {
+        target: compTarget === "both" ? "both" : toOrgState(compTarget),
+        source: "comp",
+        action: "updateCompMatrix",
+        compMatrix: d.compMatrix ?? {},
+      });
+      commitDataset(next, {
+        scope: "compensation",
+        action: "compensation",
+        title: "Compensation setup updated",
+        summary: compTarget === "both"
+          ? "Compensation bands were updated in both states."
+          : `Compensation bands were updated in ${compTarget === "as-is" ? "As-Is" : "To-Be"}.`,
+      });
+      return;
+    }
     const nextToBeData = toBeData ? { ...toBeData, compMatrix: d.compMatrix } : toBeData;
     appendChange(createChangeRecord({
       scope: "compensation",
@@ -194,12 +310,101 @@ export default function HomePage() {
     }));
     setData(d);
     setToBeData(nextToBeData);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, compTarget, currentSnapshot, data, dataset, excelRows, toBeData, toBeMutatedRows]);
+
+  const handleAICompMatrixChange = useCallback((
+    matrix: CompMatrix,
+    target: CompTarget = "both",
+    meta?: { source: "ai"; replaceAll: boolean; bandsSet: number; rationale?: string },
+  ) => {
+    const effectiveTarget: CompTarget = target === "both" && !toBeData ? "as-is" : target;
+    const targetLabel = effectiveTarget === "both"
+      ? "both states"
+      : effectiveTarget === "to-be"
+        ? "To-Be"
+        : "As-Is";
+
+    if (dataset) {
+      const next = applyOrgMutation(dataset, {
+        target: effectiveTarget === "both" ? "both" : toOrgState(effectiveTarget),
+        source: "ai",
+        action: "updateCompMatrix",
+        compMatrix: matrix,
+      });
+      commitDataset(next, {
+        scope: "compensation",
+        action: "compensation",
+        title: "AI compensation bands updated",
+        summary: `AI updated ${meta?.bandsSet ?? Object.values(matrix).reduce((sum, geos) => sum + Object.keys(geos ?? {}).length, 0)} compensation band${meta?.bandsSet === 1 ? "" : "s"} in ${targetLabel}.`,
+        details: [
+          meta?.replaceAll ? "Existing compensation bands were replaced." : "Compensation bands were added or updated.",
+          ...(meta?.rationale ? [meta.rationale] : []),
+          ...(target === "both" && effectiveTarget === "as-is" ? ["To-Be is not initialized, so the default Both target applied to As-Is only."] : []),
+        ],
+      });
+      return;
+    }
+
+    const nextAsIsData = effectiveTarget === "to-be" ? data : data ? { ...data, compMatrix: matrix } : data;
+    const nextToBeData = effectiveTarget === "as-is" ? toBeData : toBeData ? { ...toBeData, compMatrix: matrix } : toBeData;
+    appendChange(createChangeRecord({
+      scope: "compensation",
+      action: "compensation",
+      title: "AI compensation bands updated",
+      summary: `AI updated compensation bands in ${targetLabel}.`,
+      details: [
+        meta?.replaceAll ? "Existing compensation bands were replaced." : "Compensation bands were added or updated.",
+        ...(meta?.rationale ? [meta.rationale] : []),
+      ],
+      before: currentSnapshot(),
+      after: {
+        data: nextAsIsData,
+        toBeData: nextToBeData,
+        columnMapping,
+        excelRows,
+        studioRows: asIsMutatedRows,
+        asIsRows: asIsMutatedRows,
+        toBeRows: toBeMutatedRows,
+      },
+    }));
+    if (nextAsIsData !== data) setData(nextAsIsData);
+    if (nextToBeData !== toBeData) setToBeData(nextToBeData);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows, toBeData, toBeMutatedRows]);
 
   const handleSharedRowsChange = useCallback(async (
     rows: ExcelRow[] | null,
     meta?: { source?: string; action?: string; query?: string; affected?: number; label?: string; target?: StateSlice },
   ) => {
+    if (dataset) {
+      const targetSlice = meta?.target ?? (activeTab === "table" ? tableSlice : activeTab === "tree" ? studioSlice : studioSlice);
+      const target = toOrgState(targetSlice);
+      const isReset = rows === null;
+      const source = (meta?.source as OrgMutationSource | undefined) ?? (isReset ? "analytics-reset" : "employees-table");
+      const next = isReset
+        ? applyOrgMutation(dataset, target === "asIs"
+          ? { target: "asIs", source, action: "resetAsIsFromBaseline" }
+          : { target: "toBe", source, action: "copyFromAsIs" })
+        : applyOrgMutation(dataset, {
+          target,
+          source,
+          action: "replaceRows",
+          rows: rows ?? [],
+        });
+      const label = labelForSource(meta?.source);
+      commitDataset(next, {
+        scope: "rows",
+        action: "rows",
+        title: isReset ? `${label} reset` : `${label} updated ${targetSlice === "as-is" ? "As-Is" : "To-Be"} rows`,
+        summary: isReset
+          ? targetSlice === "as-is" ? "As-Is was reset to the immutable uploaded baseline." : "To-Be was reset from the current As-Is state."
+          : `${(rows?.length ?? 0).toLocaleString()} rows changed${meta?.affected != null ? `, ${meta.affected.toLocaleString()} affected by the operation` : ""}.`,
+        details: [
+          meta?.label ?? (meta?.query ? `SQL: ${meta.query}` : "Rows changed through an editable surface."),
+          `The ${targetSlice === "as-is" ? "As-Is" : "To-Be"} hierarchy was rebuilt from canonical state rows.`,
+        ],
+      });
+      return;
+    }
     const target = meta?.target ?? (activeTab === "table" ? tableSlice : studioSlice);
     const before = currentSnapshot();
     let nextData = data;
@@ -253,9 +458,26 @@ export default function HomePage() {
     if (nextData !== data) setData(nextData);
     if (nextToBeData !== toBeData) setToBeData(nextToBeData);
     setGraphVersion(v => v + 1);
-  }, [activeTab, appendChange, asIsMutatedRows, canBuildFromRows, columnMapping, currentSnapshot, data, excelRows, studioSlice, tableSlice, toBeData, toBeMutatedRows]);
+  }, [activeTab, appendChange, asIsMutatedRows, canBuildFromRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows, studioSlice, tableSlice, toBeData, toBeMutatedRows]);
 
   const handleRowMutation = useCallback(async (rows: ExcelRow[], target: 'as-is' | 'to-be' | 'both') => {
+    if (dataset) {
+      const scope: ChangeScope = target === 'as-is' ? 'as-is' : target === 'to-be' ? 'to-be' : 'session';
+      const next = applyOrgMutation(dataset, {
+        target: target === "both" ? "both" : toOrgState(target),
+        source: "ai",
+        action: "replaceRows",
+        rows,
+      });
+      commitDataset(next, {
+        scope,
+        action: "rows",
+        title: `Rows applied to ${target === "both" ? "both states" : target === "as-is" ? "As-Is" : "To-Be"}`,
+        summary: `${rows.length.toLocaleString()} source rows rebuilt into hierarchy data.`,
+        details: ["Dashboard state was rebuilt from the current row set and field mapping."],
+      });
+      return;
+    }
     if (!columnMapping) return;
     const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
     const rebuilt = buildHierarchyFromMapping(rows, columnMapping);
@@ -281,7 +503,6 @@ export default function HomePage() {
     }));
     if (target === 'as-is' || target === 'both') {
       setAsIsMutatedRows(rows);
-      setExcelRows(rows);
       setData(nextAsIs);
     }
     if (target === 'to-be' || target === 'both') {
@@ -289,9 +510,39 @@ export default function HomePage() {
       setToBeData(nextToBe);
     }
     setGraphVersion(v => v + 1);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows, toBeData, toBeMutatedRows]);
 
-  const handleFieldMapping = useCallback(async (field: string, column: string, newRows?: ExcelRow[]) => {
+  const handleFieldMapping = useCallback(async (field: string, column: string, newRows?: ExcelRow[], targetSlice: StateSlice = "as-is") => {
+    if (dataset) {
+      const target = toOrgState(targetSlice);
+      const baseState = dataset.states[target] ?? dataset.states.asIs;
+      const newMapping: ColumnMapping = {
+        ...baseState.mapping,
+        [field as import('@/lib/fieldDictionary').CanonicalField]: { column, confidence: 1, isManual: true },
+      };
+      let next = dataset;
+      if (newRows) {
+        next = applyOrgMutation(next, {
+          target,
+          source: "mapping",
+          action: "replaceRows",
+          rows: newRows,
+        });
+      }
+      next = applyOrgMutation(next, {
+        target,
+        source: "mapping",
+        action: "updateMapping",
+        mapping: newMapping,
+      });
+      commitDataset(next, {
+        scope: "mapping",
+        action: "mapping",
+        title: `${targetSlice === "as-is" ? "As-Is" : "To-Be"} field mapped`,
+        summary: `${field} now maps to ${column}.`,
+      });
+      return;
+    }
     if (!columnMapping) return;
     const { buildHierarchyFromMapping } = await import('@/lib/buildHierarchy');
     const newMapping: ColumnMapping = {
@@ -302,7 +553,6 @@ export default function HomePage() {
     const rows = newRows ?? excelRows;
     if (!rows) return;
     if (newRows) {
-      setExcelRows(newRows);
       setAsIsMutatedRows(newRows);
       // Add the new derived column to excelHeaders if it isn't already there
       setExcelHeaders(prev => prev.includes(column) ? prev : [...prev, column]);
@@ -315,10 +565,21 @@ export default function HomePage() {
       after: { data: nextData, toBeData, columnMapping: newMapping, excelRows: newRows ?? excelRows, studioRows: newRows ?? asIsMutatedRows, asIsRows: newRows ?? asIsMutatedRows, toBeRows: toBeMutatedRows },
     }));
     setData(nextData);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeData, toBeMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows, toBeData, toBeMutatedRows]);
 
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
+    if (dataset) {
+      const next = applyOrgMutation(dataset, { target: "toBe", source: "session", action: "copyFromAsIs" });
+      commitDataset(next, {
+        scope: "to-be",
+        action: "copy",
+        title: "To-Be copied from As-Is",
+        summary: "Target state initialized from the current organization snapshot.",
+        details: ["Use this as a controlled baseline before target-state edits."],
+      });
+      return;
+    }
     if (!data) return;
     const nextToBe = JSON.parse(JSON.stringify(data));
     const copiedRows = asIsMutatedRows ?? excelRows;
@@ -334,13 +595,34 @@ export default function HomePage() {
     setToBeData(nextToBe);
     setToBeMutatedRows(copiedRows ? copiedRows.map((row) => ({ ...row })) : null);
     setToBeFile(excelFile);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelFile, excelRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelFile, excelRows]);
 
   const handleToBeUploaded = useCallback((
     d: DashboardData,
     file: File,
     rows?: ExcelRow[],
+    headers?: string[],
+    mapping?: ColumnMapping,
   ) => {
+    if (dataset && rows) {
+      const next = applyOrgMutation(dataset, {
+        target: "toBe",
+        source: "upload",
+        action: "replaceToBeFromUpload",
+        rows,
+        headers,
+        mapping,
+        sourceFileName: file.name,
+      });
+      commitDataset(next, {
+        scope: "to-be",
+        action: "upload",
+        title: "To-Be file uploaded",
+        summary: `${file.name} loaded as target-state data.`,
+      });
+      setShowToBeUpload(false);
+      return;
+    }
     appendChange(createChangeRecord({
       scope: "to-be",
       action: "upload",
@@ -353,9 +635,19 @@ export default function HomePage() {
     if (rows) setToBeMutatedRows(rows);
     setToBeFile(file);
     setShowToBeUpload(false);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows, toBeMutatedRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows, toBeMutatedRows]);
 
   const handleResetToBe = useCallback(() => {
+    if (dataset) {
+      const next = applyOrgMutation(dataset, { target: "toBe", source: "session", action: "removeToBe" });
+      commitDataset(next, {
+        scope: "to-be",
+        action: "reset",
+        title: "To-Be reset",
+        summary: "The target-state table was removed.",
+      });
+      return;
+    }
     appendChange(createChangeRecord({
       scope: "to-be",
       action: "reset",
@@ -365,10 +657,24 @@ export default function HomePage() {
     setToBeData(null);
     setToBeFile(null);
     setToBeMutatedRows(null);
-  }, [appendChange, asIsMutatedRows, columnMapping, currentSnapshot, data, excelRows]);
+  }, [appendChange, asIsMutatedRows, columnMapping, commitDataset, currentSnapshot, data, dataset, excelRows]);
 
   const handleRevertChange = useCallback((change: ChangeRecord) => {
     const before = cloneSnapshot(change.before);
+
+    if (before.dataset) {
+      const restored = cloneOrgDataset(before.dataset);
+      const index = changeLog.findIndex((item) => item.id === change.id);
+      const next = {
+        ...restored,
+        changeLog: index >= 0 ? changeLog.slice(0, index) : restored.changeLog,
+      };
+      setDataset(next);
+      syncLegacyFromDataset(next);
+      setStudioSlice(toSlice(next.activeStateBySurface.studio));
+      setTableSlice(toSlice(next.activeStateBySurface.table));
+      return;
+    }
 
     if ("data" in before) setData(before.data ?? null);
     if ("toBeData" in before) {
@@ -385,7 +691,7 @@ export default function HomePage() {
       const index = prev.findIndex((item) => item.id === change.id);
       return index >= 0 ? prev.slice(0, index) : prev;
     });
-  }, []);
+  }, [changeLog, syncLegacyFromDataset]);
 
   const handleDownload = async () => { return; };
 
@@ -409,26 +715,45 @@ export default function HomePage() {
   const studioFile = studioSlice === "as-is" ? excelFile : (toBeFile ?? excelFile);
   const tableData  = tableSlice  === "as-is" ? data : (toBeData ?? data);
   const tableFile  = tableSlice  === "as-is" ? excelFile : (toBeFile ?? excelFile);
+  const aiSlice = dataset ? toSlice(dataset.activeStateBySurface.ai) : "as-is";
   const rowsForSlice = (slice: StateSlice): ExcelRow[] | null =>
     slice === "as-is"
       ? (asIsMutatedRows ?? excelRows)
       : (toBeMutatedRows ?? asIsMutatedRows ?? excelRows);
   const studioRows = rowsForSlice(studioSlice);
   const tableRows = rowsForSlice(tableSlice);
+  const aiRows = rowsForSlice(aiSlice);
+  const aiData = aiSlice === "as-is" ? data : (toBeData ?? data);
   const asIsHierarchyRows = rowsForSlice("as-is");
   const toBeHierarchyRows = rowsForSlice("to-be");
-  const switchHierarchySlice = (slice: StateSlice) => {
-    setStudioSlice(slice);
+  const setSurfaceSlice = (surface: keyof OrgDataset["activeStateBySurface"], slice: StateSlice) => {
+    const state = toOrgState(slice);
+    if (surface === "studio" || surface === "hierarchy") setStudioSlice(slice);
+    if (surface === "table") setTableSlice(slice);
+    if (!dataset) return;
+    setDataset(applyOrgMutation(dataset, {
+      target: state,
+      source: "session",
+      action: "setActiveState",
+      surface,
+      state,
+    }));
   };
+  const switchHierarchySlice = (slice: StateSlice) => {
+    setSurfaceSlice("hierarchy", slice);
+  };
+  const remapHeaderGroups = dataset ? stateHeadersForMapping(dataset, remapState) : { source: excelHeaders, derived: [] };
+  const remapMapping = dataset?.states[remapState]?.mapping ?? columnMapping;
+  const compData = compTarget === "to-be" && toBeData ? toBeData : data;
 
   return (
     <div className={styles.shell} ref={shellRef}>
       {showToBeUpload && (
         <ToBeUploadModal
-          asIsHeaders={excelHeaders}
-          asIsMapping={columnMapping}
+          asIsHeaders={dataset?.states.asIs.headers ?? excelHeaders}
+          asIsMapping={dataset?.states.asIs.mapping ?? columnMapping}
           asIsData={data}
-          onConfirm={(d, file, rows) => handleToBeUploaded(d, file, rows)}
+          onConfirm={(d, file, rows, headers, mapping) => handleToBeUploaded(d, file, rows, headers, mapping)}
           onCancel={() => setShowToBeUpload(false)}
         />
       )}
@@ -493,7 +818,11 @@ export default function HomePage() {
         {columnMapping && (
           <button
             className={styles.editFieldsBtn}
-            onClick={() => setShowRemapping(true)}
+            onClick={() => {
+              const slice = activeTab === "table" ? tableSlice : activeTab === "studio" || activeTab === "tree" ? studioSlice : "as-is";
+              setRemapState(toOrgState(slice));
+              setShowRemapping(true);
+            }}
             title="Re-map Excel columns to data model fields"
           >
             <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -505,11 +834,13 @@ export default function HomePage() {
         )}
       </nav>
 
-      {showRemapping && columnMapping && (
+      {showRemapping && remapMapping && (
         <div className={styles.remapOverlay}>
           <ColumnMappingStep
-            headers={excelHeaders}
-            mapping={columnMapping}
+            headers={[...remapHeaderGroups.source, ...remapHeaderGroups.derived]}
+            sourceHeaders={remapHeaderGroups.source}
+            derivedHeaders={remapHeaderGroups.derived}
+            mapping={remapMapping}
             onConfirm={handleRemappingConfirm}
             onBack={() => setShowRemapping(false)}
           />
@@ -524,7 +855,7 @@ export default function HomePage() {
 
       {/* ── 02 Advanced Analytics — always As-Is ── */}
       <div data-view="advanced" style={{ display: activeTab === "advanced" ? "block" : "none" }}>
-        <AdvancedAnalyticsView data={data} file={excelFile} />
+        <AdvancedAnalyticsView data={data} file={excelFile} sourceRows={asIsHierarchyRows ?? undefined} />
       </div>
 
       {/* ── 03 Analytics Studio — state-switchable ── */}
@@ -534,13 +865,13 @@ export default function HomePage() {
           <div className={styles.sectionStateBtns}>
             <button
               className={`${styles.sectionStateBtn} ${studioSlice === "as-is" ? styles.sectionStateBtnActive : ""}`}
-              onClick={() => setStudioSlice("as-is")}
+              onClick={() => setSurfaceSlice("studio", "as-is")}
             >
               As-Is
             </button>
             <button
               className={`${styles.sectionStateBtn} ${studioSlice === "to-be" ? styles.sectionStateBtnActive : ""}`}
-              onClick={() => setStudioSlice("to-be")}
+              onClick={() => setSurfaceSlice("studio", "to-be")}
               disabled={!toBeData}
               title={!toBeData ? "Initialize To-Be state in the Hierarchy tab first" : undefined}
             >
@@ -554,7 +885,7 @@ export default function HomePage() {
           )}
         </div>
         <AnalyticsStudioView
-          file={studioFile}
+          file={studioRows ? null : studioFile}
           data={studioData}
           rows={studioRows ?? undefined}
           onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
@@ -633,9 +964,11 @@ export default function HomePage() {
                   data={studioData}
                   rows={studioRows ?? []}
                   toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
+                  stateId={studioSlice}
                   onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: studioSlice })}
                   onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
                   onDataChange={studioSlice === "as-is" ? handleCompDataChange : handleToBeDataChange}
+                  onCompMatrixChange={handleAICompMatrixChange}
                   toBeData={toBeData}
                   onRowMutation={handleRowMutation}
                   onFieldMapping={handleFieldMapping}
@@ -713,13 +1046,13 @@ export default function HomePage() {
           <div className={styles.sectionStateBtns}>
             <button
               className={`${styles.sectionStateBtn} ${tableSlice === "as-is" ? styles.sectionStateBtnActive : ""}`}
-              onClick={() => setTableSlice("as-is")}
+              onClick={() => setSurfaceSlice("table", "as-is")}
             >
               As-Is
             </button>
             <button
               className={`${styles.sectionStateBtn} ${tableSlice === "to-be" ? styles.sectionStateBtnActive : ""}`}
-              onClick={() => setTableSlice("to-be")}
+              onClick={() => setSurfaceSlice("table", "to-be")}
               disabled={!toBeData}
               title={!toBeData ? "Initialize To-Be state in the Hierarchy tab first" : undefined}
             >
@@ -734,7 +1067,7 @@ export default function HomePage() {
         </div>
         <TableView
           data={tableData}
-          file={tableFile}
+          file={tableRows ? null : tableFile}
           jumpToId={tableJumpId}
           onJumpComplete={() => setTableJumpId(null)}
           externalRows={tableRows}
@@ -744,7 +1077,26 @@ export default function HomePage() {
 
       {/* ── 06 Comp Setup — shared ── */}
       <div data-view="comp" style={{ display: activeTab === "comp" ? "block" : "none" }}>
-        <CompMatrixView data={data} onDataChange={handleCompDataChange} />
+        <div className={styles.sectionStateBar}>
+          <span className={styles.sectionStateLabel}>Apply to</span>
+          <div className={styles.sectionStateBtns}>
+            <button
+              className={`${styles.sectionStateBtn} ${compTarget === "as-is" ? styles.sectionStateBtnActive : ""}`}
+              onClick={() => setCompTarget("as-is")}
+            >
+              As-Is
+            </button>
+            <button
+              className={`${styles.sectionStateBtn} ${compTarget === "to-be" ? styles.sectionStateBtnActive : ""}`}
+              onClick={() => setCompTarget("to-be")}
+              disabled={!toBeData}
+              title={!toBeData ? "Initialize To-Be state first" : undefined}
+            >
+              To-Be
+            </button>
+          </div>
+        </div>
+        <CompMatrixView data={compData} onDataChange={handleCompDataChange} />
       </div>
 
       {/* ── 07 Data Readiness ── */}
@@ -764,12 +1116,14 @@ export default function HomePage() {
       {activeTab === "ai" && (
       <div data-view="ai">
         <AIAssistantView
-          data={data}
-          rows={asIsHierarchyRows ?? []}
+          data={aiData}
+          rows={aiRows ?? []}
           toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
-          onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: "as-is" })}
+          stateId={aiSlice}
+          onRowsChange={(rows, meta) => handleSharedRowsChange(rows, { ...meta, target: aiSlice })}
           onCreateChart={req => { setPendingChartRequest(req); setActiveTab('studio'); }}
           onDataChange={handleCompDataChange}
+          onCompMatrixChange={handleAICompMatrixChange}
           toBeData={toBeData}
           onRowMutation={handleRowMutation}
           onFieldMapping={handleFieldMapping}
@@ -882,6 +1236,10 @@ const METRIC_DEFS: MetricDef[] = [
 
 function TargetStateAnalysis({ asIs, toBe }: { asIs: StateMetrics; toBe: StateMetrics | null }) {
   const ref = toBe ?? asIs;
+  const missingBands = [
+    ...asIs.missingCompBands.map((band) => ({ state: "As-Is", ...band })),
+    ...(toBe?.missingCompBands.map((band) => ({ state: "To-Be", ...band })) ?? []),
+  ];
   return (
     <div className={styles.targetAnalysis}>
       <div className={styles.targetAnalysisHeader}>
@@ -913,6 +1271,12 @@ function TargetStateAnalysis({ asIs, toBe }: { asIs: StateMetrics; toBe: StateMe
           );
         })}
       </div>
+      {missingBands.length > 0 && (
+        <div className={styles.targetAnalysisWarning}>
+          Total cost is incomplete: {missingBands.length} role{missingBands.length === 1 ? "" : "s"} need a matching compensation band.{" "}
+          {missingBands.slice(0, 4).map((band) => `${band.state} ${band.employeeId} (${band.grade} / ${band.geo ?? "blank geo"})`).join("; ")}
+        </div>
+      )}
     </div>
   );
 }
