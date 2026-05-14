@@ -391,6 +391,1448 @@
 .sectionStateBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 .sectionStateBtnActive { background: var(--ink); color: var(--cream); border-color: var(--ink); }
 
+/* ===== WORK & CAPABILITY INGESTION ===== */
+.workCapabilityPanel {
+  background: var(--white);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  padding: 22px;
+}
+
+.workCapabilityHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.workCapabilityHeader h2 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.workCapabilityIntro {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--slate-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workCapabilityKicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--teal);
+  font-weight: 700;
+}
+
+.workCapabilityImportBtn {
+  background: var(--ink);
+  color: var(--cream);
+  border: 0;
+  border-radius: 2px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.workCapabilityImportBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.workCapabilitySummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workCapabilitySummary > div {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--cream);
+  padding: 14px;
+}
+
+.workCapabilitySummaryLabel {
+  display: block;
+  margin-bottom: 7px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+}
+
+.workCapabilitySummary strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.workCapabilityModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(18, 24, 31, 0.58);
+}
+
+.workCapabilityModal {
+  width: min(1120px, 100%);
+  max-height: min(860px, calc(100vh - 56px));
+  overflow: auto;
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 6px;
+  background: var(--white);
+  box-shadow: 0 24px 90px rgba(0,0,0,0.28);
+  padding: 22px;
+}
+
+.workCapabilityModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.workCapabilityModalHeader h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 25px;
+  color: var(--ink);
+}
+
+.workCapabilityModalClose {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 2px;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.workCapabilityStepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.workCapabilityStepBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 3px;
+  background: var(--cream);
+  color: var(--slate-2);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.workCapabilityStepBtn span {
+  color: var(--teal-deep);
+  font-weight: 700;
+}
+
+.workCapabilityStepBtnActive {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--cream);
+}
+
+.workCapabilityStepBtnActive span {
+  color: var(--cream);
+}
+
+.workCapabilityStepBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workCapabilityModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.workCapabilitySecondaryBtn {
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 2px;
+  background: var(--white);
+  color: var(--ink);
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.workCapabilitySecondaryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workCapabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workCapabilitySlot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed rgba(0,0,0,0.16);
+  border-radius: 4px;
+  background: var(--cream);
+}
+
+.workCapabilitySlot input {
+  font-size: 12px;
+  color: var(--slate-2);
+}
+
+.workCapabilitySlotLabel {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.workCapabilitySlotHint {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--slate-light);
+}
+
+.workCapabilityOk,
+.workCapabilityPending {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.workCapabilityOk { color: var(--teal-deep); }
+.workCapabilityPending { color: var(--slate-light); }
+
+.workCapabilityResult {
+  margin-top: 18px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 16px;
+}
+
+.workCapabilityResult h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.workCapabilityResult pre {
+  margin: 0;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.workCapabilityReviewList {
+  display: grid;
+  gap: 10px;
+}
+
+.workCapabilityReviewRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--cream);
+  padding: 12px 14px;
+}
+
+.workCapabilityReviewRow div {
+  display: grid;
+  gap: 5px;
+}
+
+.workCapabilityReviewRow strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.workCapabilityReviewRow div span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--slate-light);
+}
+
+.workCapabilityNormalization {
+  margin-top: 18px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 16px;
+}
+
+.workCapabilityNormalizationHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.workCapabilityNormalizationHeader h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.workCapabilityNormalizationStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.workCapabilityNormalizationStats span,
+.workCapabilityNormalizationStatus {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 2px;
+  padding: 4px 7px;
+  color: var(--slate-2);
+  background: #f8fafc;
+}
+
+.workCapabilityNormalizationList {
+  display: grid;
+  gap: 10px;
+}
+
+.workCapabilityNormalizationRow {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  padding: 12px;
+  background: var(--cream);
+}
+
+.workCapabilityNormalizationMeta,
+.workCapabilityNormalizationFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-light);
+}
+
+.workCapabilityNormalizationMeta strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.workCapabilityNormalizationDataset {
+  color: var(--teal-deep);
+  font-weight: 700;
+}
+
+.workCapabilityNormalizationValues {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.workCapabilityRawValue,
+.workCapabilityNormalizationValues input {
+  min-height: 34px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 2px;
+  background: var(--white);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.workCapabilityRawValue {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.workCapabilityNormalizationValues input {
+  width: 100%;
+}
+
+.workCapabilityArrow {
+  font-family: var(--font-mono);
+  color: var(--slate-light);
+}
+
+.workCapabilityNormalizationReason {
+  flex: 1 1 260px;
+  line-height: 1.4;
+}
+
+.workCapabilityNormalizationFooter button {
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 2px;
+  background: var(--white);
+  color: var(--ink);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.workCapabilityNormalizationFooter button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workCapabilityTaxonomy {
+  margin-top: 18px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 18px;
+}
+
+.workCapabilityTaxonomyHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.workCapabilityTaxonomyHeader h3 {
+  margin: 4px 0 6px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  color: var(--ink);
+}
+
+.workCapabilityTaxonomyHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--slate-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.workCapabilityTaxonomyStats,
+.workCapabilityTaxonomyToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.workCapabilityTaxonomyStats span {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 999px;
+  background: var(--cream);
+  padding: 7px 10px;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.workCapabilityTaxonomyToolbar {
+  justify-content: space-between;
+  margin-bottom: 12px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--cream);
+  padding: 10px;
+}
+
+.workCapabilityTaxonomyToolbar input {
+  flex: 1 1 280px;
+  min-height: 36px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 3px;
+  background: var(--white);
+  padding: 8px 11px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityTaxonomyToolbar select {
+  min-height: 36px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 3px;
+  background: var(--white);
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityViewTabs {
+  display: flex;
+  gap: 6px;
+}
+
+.workCapabilityKpiStrip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.workCapabilityKpiCard {
+  min-width: 0;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--white);
+  padding: 12px;
+}
+
+.workCapabilityKpiCard span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.workCapabilityKpiCard strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 22px;
+}
+
+.workCapabilityCatalogWorkspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.55fr) minmax(320px, 0.92fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.workCapabilityCatalogTree,
+.workCapabilityActivityTableWrap,
+.workCapabilityActivityDetailPanel {
+  min-width: 0;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--cream);
+}
+
+.workCapabilityCatalogTree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 720px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.workCapabilityTreeGroup {
+  display: grid;
+  gap: 5px;
+}
+
+.workCapabilityTreeNode,
+.workCapabilityTreeNodeActive,
+.workCapabilityTreeChild,
+.workCapabilityTreeChildActive,
+.workCapabilityTreeGrandchild,
+.workCapabilityTreeGrandchildActive {
+  width: 100%;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--white);
+  padding: 8px 9px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workCapabilityTreeNodeActive,
+.workCapabilityTreeChildActive,
+.workCapabilityTreeGrandchildActive {
+  border-color: var(--teal-deep);
+  box-shadow: inset 3px 0 0 var(--teal-deep);
+}
+
+.workCapabilityTreeChild,
+.workCapabilityTreeChildActive {
+  margin-left: 10px;
+  width: calc(100% - 10px);
+}
+
+.workCapabilityTreeGrandchild,
+.workCapabilityTreeGrandchildActive {
+  margin-left: 22px;
+  width: calc(100% - 22px);
+}
+
+.workCapabilityTreeNode strong,
+.workCapabilityTreeNodeActive strong,
+.workCapabilityTreeChild strong,
+.workCapabilityTreeChildActive strong,
+.workCapabilityTreeGrandchild strong,
+.workCapabilityTreeGrandchildActive strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.workCapabilityTreeNode span,
+.workCapabilityTreeNodeActive span,
+.workCapabilityTreeChild span,
+.workCapabilityTreeChildActive span,
+.workCapabilityTreeGrandchild span,
+.workCapabilityTreeGrandchildActive span {
+  display: block;
+  margin-top: 5px;
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityActivityTableWrap {
+  max-height: 720px;
+  overflow: auto;
+  position: relative;
+}
+
+.workCapabilityActivityTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--white);
+  font-size: 11px;
+}
+
+.workCapabilityActivityTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  background: var(--cream);
+  padding: 9px 8px;
+  color: var(--slate);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.workCapabilityActivityTable td {
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding: 8px;
+  color: var(--ink);
+  vertical-align: top;
+}
+
+.workCapabilityActivityTable td button {
+  border: 0;
+  background: transparent;
+  color: var(--teal-deep);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.workCapabilityActivityRowSelected td {
+  background: rgba(0,107,107,0.06);
+}
+
+.workCapabilityBulkActionBar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: #f7fbfb;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.06);
+}
+
+.workCapabilityBulkActionBar strong,
+.workCapabilityBulkActionBar span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityBulkActionBar span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--slate-light);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workCapabilityBulkActionBar button,
+.workCapabilityCleanupActions button {
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 2px;
+  background: var(--white);
+  color: var(--ink);
+  padding: 6px 9px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.workCapabilityBulkActionBar button:disabled,
+.workCapabilityCleanupActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workCapabilityActivityDetailPanel {
+  max-height: 720px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.workCapabilityActivityDetailInner,
+.workCapabilityActivityDetailEmpty {
+  display: grid;
+  gap: 12px;
+}
+
+.workCapabilityActivityDetailInner h3,
+.workCapabilityActivityDetailEmpty h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.workCapabilityActivityDetailEmpty p {
+  margin: 0;
+  color: var(--slate-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workCapabilityActivityPath {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityDetailHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workCapabilityDetailHeader h3 {
+  min-width: 0;
+}
+
+.workCapabilityReadOnlyFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--white);
+}
+
+.workCapabilityReadOnlyFacts span {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workCapabilityReadOnlyFacts strong {
+  color: var(--ink);
+}
+
+.workCapabilityDetailCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workCapabilityDetailSection {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 12px;
+}
+
+.workCapabilityDetailSection strong {
+  color: var(--slate);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workCapabilityDetailSection table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--white);
+  font-size: 10px;
+}
+
+.workCapabilityDetailSection th,
+.workCapabilityDetailSection td {
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding: 7px 6px;
+  text-align: left;
+}
+
+.workCapabilityScenarioLevers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workCapabilityScenarioLevers button {
+  border: 1px solid rgba(0,107,107,0.22);
+  border-radius: 4px;
+  background: rgba(0,107,107,0.06);
+  color: var(--teal-deep);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workCapabilityCleanupPanel {
+  margin-top: 12px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--cream);
+  padding: 12px;
+}
+
+.workCapabilityCleanupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.workCapabilityCleanupHeader h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.workCapabilityCleanupHeader span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+}
+
+.workCapabilityCleanupList {
+  display: grid;
+  gap: 8px;
+}
+
+.workCapabilityCleanupItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--white);
+  padding: 10px;
+}
+
+.workCapabilityCleanupItem strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityCleanupItem p {
+  margin: 4px 0;
+  color: var(--slate-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workCapabilityCleanupItem span {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityCleanupActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.workCapabilityActionModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(18, 24, 31, 0.55);
+}
+
+.workCapabilityActionModal {
+  width: min(760px, 100%);
+  max-height: min(780px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 6px;
+  background: var(--white);
+  box-shadow: 0 24px 90px rgba(0,0,0,0.28);
+  padding: 20px;
+}
+
+.workCapabilityActionModal h3 {
+  margin: 4px 0 8px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  color: var(--ink);
+}
+
+.workCapabilityActionModal p,
+.workCapabilityModalWarning {
+  color: var(--slate-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workCapabilityActionModal label {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityActionModal select {
+  min-height: 36px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 3px;
+  background: var(--white);
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityModalImpactGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.workCapabilityModalIdList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.workCapabilityModalIdList span {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 999px;
+  background: var(--cream);
+  padding: 5px 8px;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.workCapabilityTaxonomyWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.72fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.workCapabilityTaxonomyCanvas {
+  height: 680px;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.82), rgba(244,241,232,0.94)),
+    var(--cream);
+}
+
+.workCapabilityTaxonomyCanvas :global(.react-flow__controls-button) {
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: var(--white);
+  color: var(--ink);
+}
+
+.workCapabilityInspector {
+  min-width: 0;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--cream);
+  padding: 14px;
+  max-height: 680px;
+  overflow: auto;
+}
+
+.workCapabilityInspectorInner,
+.workCapabilityInspectorEmpty,
+.workCapabilityInspectorForm,
+.workCapabilityInspectorHelp {
+  display: grid;
+  gap: 10px;
+}
+
+.workCapabilityInspectorInner h3,
+.workCapabilityInspectorEmpty h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.workCapabilityInspectorEmpty p,
+.workCapabilityInspectorHelp p {
+  margin: 0;
+  color: var(--slate-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workCapabilityInspectorMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workCapabilityInspectorMeta span {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 999px;
+  background: var(--white);
+  padding: 5px 8px;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.workCapabilityInspectorForm {
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 12px;
+}
+
+.workCapabilityInspectorForm strong {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.workCapabilityInspectorForm span {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.workCapabilityTaxonomyNode {
+  width: 210px;
+  min-height: 86px;
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 7px;
+  background: rgba(255,255,255,0.96);
+  box-shadow: 0 10px 24px rgba(20,20,20,0.08);
+  padding: 10px 12px;
+  color: var(--ink);
+}
+
+.workCapabilityTaxonomyNode strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.workCapabilityTaxonomyNodeKind {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+}
+
+.workCapabilityTaxonomyNodeMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.workCapabilityTaxonomyNodeMeta span {
+  border-radius: 999px;
+  background: rgba(0,0,0,0.045);
+  padding: 3px 6px;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workCapabilityTaxonomyNode_root {
+  border-color: rgba(32,32,32,0.35);
+  background: #202020;
+  color: var(--cream);
+}
+
+.workCapabilityTaxonomyNode_root .workCapabilityTaxonomyNodeKind,
+.workCapabilityTaxonomyNode_root .workCapabilityTaxonomyNodeMeta span {
+  color: rgba(244,241,232,0.82);
+}
+
+.workCapabilityTaxonomyNode_domain {
+  border-color: rgba(0,107,107,0.34);
+}
+
+.workCapabilityTaxonomyNode_category {
+  border-color: rgba(192,168,0,0.4);
+}
+
+.workCapabilityTaxonomyNode_process {
+  border-color: rgba(123,111,42,0.42);
+}
+
+.workCapabilityTaxonomyNode_activity {
+  width: 230px;
+}
+
+.workCapabilityTaxonomyNodeHigh {
+  box-shadow: inset 4px 0 0 #c0392b, 0 10px 24px rgba(20,20,20,0.08);
+}
+
+.workCapabilityTaxonomyNodeMedium {
+  box-shadow: inset 4px 0 0 #c0a800, 0 10px 24px rgba(20,20,20,0.08);
+}
+
+.workCapabilityTaxonomyNodeLow {
+  box-shadow: inset 4px 0 0 #5b8a8a, 0 10px 24px rgba(20,20,20,0.08);
+}
+
+.workCapabilityTaxonomyNodeInactive {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
+.workCapabilityTaxonomyNodeSelected,
+.workCapabilityTaxonomyNodeBranch {
+  border-color: var(--teal-deep);
+}
+
+.workCapabilityTaxonomyNodeSelected {
+  outline: 3px solid rgba(0,107,107,0.16);
+}
+
+.workCapabilityTaxonomyHandle {
+  width: 8px !important;
+  height: 8px !important;
+  border: 1px solid var(--teal-deep) !important;
+  background: var(--cream) !important;
+}
+
+.workCapabilityEditBar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.workCapabilityEditBar > div {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--cream);
+  padding: 12px;
+}
+
+.workCapabilityEditBar strong,
+.workCapabilityPanelTitle,
+.workCapabilityAddActivity strong,
+.workCapabilityChangeLog strong {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.workCapabilityEditBar input,
+.workCapabilityEditBar select,
+.workCapabilityInspectorForm input,
+.workCapabilityInspectorForm select,
+.workCapabilityActivityEditor input,
+.workCapabilityActivityEditor select,
+.workCapabilityAddActivity input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 2px;
+  background: var(--white);
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityEditBar span {
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.workCapabilityEditBar button,
+.workCapabilityActivityTable button,
+.workCapabilityEditorActions button,
+.workCapabilityAddActivity button,
+.workCapabilityInspectorForm button {
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 2px;
+  background: var(--white);
+  color: var(--ink);
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.workCapabilityEditBar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workCapabilityTaxonomyGrid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.6fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.workCapabilityTreePanel,
+.workCapabilityActivityPanel,
+.workCapabilityDetailPanel {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--cream);
+  padding: 12px;
+  min-width: 0;
+}
+
+.workCapabilityTreeGroup {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.workCapabilityTreeGroup > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workCapabilityTreeCategory {
+  display: grid;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(0,107,107,0.18);
+}
+
+.workCapabilityTreeCategory span {
+  color: var(--slate-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workCapabilityTreeCategory button {
+  border: 0;
+  background: transparent;
+  color: var(--slate-2);
+  text-align: left;
+  padding: 5px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.workCapabilityTreeCategory button:hover,
+.workCapabilityTreeActivityActive {
+  background: var(--white) !important;
+  color: var(--teal-deep) !important;
+}
+
+.workCapabilityLegacyActivityTable {
+  margin-top: 10px;
+  overflow: auto;
+  max-height: 520px;
+  background: var(--white);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.workCapabilityLegacyActivityTable table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.workCapabilityLegacyActivityTable th,
+.workCapabilityLegacyActivityTable td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  text-align: left;
+  vertical-align: top;
+}
+
+.workCapabilityLegacyActivityTable th {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+  background: #f8fafc;
+}
+
+.workCapabilityLegacyActivityTable td button {
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: inherit;
+}
+
+.workCapabilityActivityEditor {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.workCapabilityActivityEditor label {
+  display: grid;
+  gap: 5px;
+  color: var(--slate-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workCapabilityEditorActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.workCapabilityAddActivity {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.workCapabilityTaxonomyFooter {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.workCapabilityTaxonomyFooter > div,
+.workCapabilityChangeLog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  background: var(--cream);
+  padding: 10px 12px;
+  color: var(--slate-2);
+  font-size: 11px;
+}
+
+.workCapabilityChangeLog {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 /* ===== TARGET STATE ANALYSIS ===== */
 .targetAnalysis {
   margin-top: 24px;
@@ -510,6 +1952,8 @@
   .hierarchyStateActions { width: 100%; }
   .hierarchyWorkspace { grid-template-columns: 1fr; }
   .hierarchyAiPane { position: static; }
+  .workCapabilityGrid { grid-template-columns: 1fr; }
+  .workCapabilityHeader { flex-direction: column; }
   .metricStrip { grid-template-columns: repeat(2, 1fr); }
   .metricCard:nth-child(2n) { border-right: none; }
 }

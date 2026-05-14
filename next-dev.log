@@ -8,27 +8,6 @@
    - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 4.6s
+ ✓ Ready in 5.3s
  ○ Compiling / ...
- ✓ Compiled /_not-found in 6.6s (1962 modules)
- GET /serviceworker.js 404 in 2487ms
- GET / 200 in 209ms
- ○ Compiling /api/ai/chat ...
- ✓ Compiled /api/ai/chat in 1558ms (2052 modules)
- POST /api/ai/chat 200 in 5055ms
- POST /api/ai/chat 200 in 1802ms
- POST /api/ai/chat 200 in 19507ms
- POST /api/ai/chat 200 in 4763ms
- POST /api/ai/chat 200 in 2312ms
- POST /api/ai/chat 200 in 6720ms
- POST /api/ai/chat 200 in 5407ms
- POST /api/ai/chat 200 in 3407ms
- POST /api/ai/chat 200 in 3693ms
- POST /api/ai/chat 200 in 4425ms
- POST /api/ai/chat 200 in 2556ms
- POST /api/ai/chat 200 in 4504ms
- POST /api/ai/chat 200 in 1515ms
- POST /api/ai/chat 200 in 3041ms
- POST /api/ai/chat 200 in 3456ms
- POST /api/ai/chat 200 in 1142ms
- POST /api/ai/chat 200 in 2679ms
+ ✓ Compiled / in 4.8s (1959 modules)
