@@ -505,6 +505,136 @@ export interface SkillsCapabilityPortfolio {
   };
 }
 
+export type SuccessionCandidateStatus =
+  | "Suggested"
+  | "Selected"
+  | "Rejected"
+  | "Backup";
+export type SuccessionReadinessStatus =
+  | "Ready Now"
+  | "Ready Soon"
+  | "Development Needed"
+  | "Not Recommended";
+export type SuccessionRiskStatus = "High" | "Medium" | "Low";
+export type SuccessionConflictRisk =
+  | "None"
+  | "Attention"
+  | "High conflict"
+  | "Review required"
+  | "Capacity risk"
+  | "Backfill risk";
+
+export interface SuccessionCandidateRecord {
+  target_employee_id: string;
+  candidate_employee_id: string;
+  readiness_score: number;
+  readiness_status: SuccessionReadinessStatus;
+  rank: number;
+  status: SuccessionCandidateStatus;
+  selected_flag: boolean;
+  already_selected_count: number;
+  attention_flag: boolean;
+  attention_reason: string;
+}
+
+export interface SuccessionSkillGapDetail {
+  skillId: string;
+  skillName: string;
+  requiredLevel: number;
+  currentLevel: number;
+  criticality: string;
+  gap: number;
+  gapStatus: SkillGapStatus;
+}
+
+export interface SuccessionCriticalActivity {
+  activityId: string;
+  activityName: string;
+  criticality: string;
+  timeAllocationPct: number;
+  accountability: string;
+}
+
+export interface SuccessionCriticalRoleMetric {
+  employeeId: string;
+  employeeName: string;
+  role: string;
+  department: string;
+  grade: string;
+  span: number;
+  loadedCost: number;
+  currentWorkloadPct: number;
+  criticalityScore: number;
+  criticalActivitiesOwned: number;
+  criticalActivityDetails: SuccessionCriticalActivity[];
+  criticalSkillsHeld: number;
+  requiredCriticalSkills: number;
+  successorCount: number;
+  bestSuccessorReadiness: number;
+  successionRisk: SuccessionRiskStatus;
+  riskReasons: string[];
+}
+
+export interface SuccessionCandidateMetric {
+  targetEmployeeId: string;
+  candidateEmployeeId: string;
+  candidateName: string;
+  currentRole: string;
+  department: string;
+  grade: string;
+  readinessScore: number;
+  readinessStatus: SuccessionReadinessStatus;
+  rank: number;
+  status: SuccessionCandidateStatus;
+  selectedFlag: boolean;
+  coveredSkills: number;
+  minorGaps: number;
+  majorGaps: number;
+  criticalGaps: number;
+  currentWorkloadPct: number;
+  alreadySelectedFor: number;
+  attentionFlag: boolean;
+  attentionReason: string;
+  skillDetails: SuccessionSkillGapDetail[];
+}
+
+export interface SuccessionLoadMetric {
+  candidateEmployeeId: string;
+  candidateName: string;
+  selectedTargetRoles: string[];
+  selectedTargetCount: number;
+  averageReadiness: number;
+  currentWorkloadPct: number;
+  conflictRisk: SuccessionConflictRisk;
+  recommendedAction: string;
+}
+
+export interface SuccessionPlanningPortfolio {
+  kpis: {
+    criticalRoles: number;
+    rolesWithoutSuccessor: number;
+    rolesWithOneSuccessor: number;
+    averageSuccessorReadiness: number;
+    highRiskRoles: number;
+    duplicateSuccessorFlags: number;
+    criticalActivityDependency: number;
+  };
+  criticalRoles: SuccessionCriticalRoleMetric[];
+  candidates: SuccessionCandidateMetric[];
+  successorLoads: SuccessionLoadMetric[];
+  filterOptions: {
+    departments: string[];
+    riskStatuses: SuccessionRiskStatus[];
+    readinessStatuses: SuccessionReadinessStatus[];
+    candidateStatuses: SuccessionCandidateStatus[];
+  };
+}
+
+export interface SuccessionPlanningPortfolioInput
+  extends WorkCapabilityActivityPortfolioInput {
+  successionCandidates?: SuccessionCandidateRecord[];
+}
+
 export interface WorkCapabilityArchiveImpact {
   activityCount: number;
   assignedPeople: number;
@@ -2816,12 +2946,14 @@ export function buildSkillsCapabilityPortfolio(
       activityAssignments.map((row) => textValue(row, "employee_id")),
     );
 
-    if (requirements.length === 0 || assignedEmployeeIds.size === 0) continue;
-
     let lowestSkillCoveragePct = 100;
     let majorSkillGaps = 0;
     let totalCostAtRisk = 0;
     let totalFteAtRisk = 0;
+    const missingSkillData =
+      requirements.length === 0 ||
+      assignedEmployeeIds.size === 0 ||
+      employeeSkills.length === 0;
 
     const skillCoverageDetails = requirements.map((req) => {
       const skillId = textValue(req, "skill_id");
@@ -2894,14 +3026,19 @@ export function buildSkillsCapabilityPortfolio(
       };
     });
 
-    const skillRisk: ActivitySkillRisk =
-      criticality === "High" && lowestSkillCoveragePct < 50
-        ? "High"
-        : lowestSkillCoveragePct < 80
-          ? "Medium"
-          : lowestSkillCoveragePct >= 80
-            ? "Low"
-            : "Unknown";
+    if (requirements.length === 0) {
+      lowestSkillCoveragePct = 0;
+    }
+
+    let skillRisk: ActivitySkillRisk = "Unknown";
+    if (!missingSkillData) {
+      skillRisk =
+        criticality === "High" && lowestSkillCoveragePct < 50
+          ? "High"
+          : lowestSkillCoveragePct < 80
+            ? "Medium"
+            : "Low";
+    }
 
     activityMetrics.push({
       activityId,
@@ -3043,6 +3180,558 @@ export function buildSkillsCapabilityPortfolio(
       criticalities: Array.from(criticalities).sort(),
       riskStatuses: Array.from(riskStatuses).sort(),
       skillRisks: Array.from(skillRisks).sort(),
+    },
+  };
+}
+
+function readinessStatusFor(score: number): SuccessionReadinessStatus {
+  return score >= 85
+    ? "Ready Now"
+    : score >= 70
+      ? "Ready Soon"
+      : score >= 50
+        ? "Development Needed"
+        : "Not Recommended";
+}
+
+function selectedCandidateKey(targetEmployeeId: string, candidateEmployeeId: string) {
+  return `${targetEmployeeId}::${candidateEmployeeId}`;
+}
+
+function isSelectedSuccessionStatus(status: SuccessionCandidateStatus): boolean {
+  return status === "Selected" || status === "Backup";
+}
+
+function titleLooksCritical(title: string): boolean {
+  return /\b(ceo|chief|cxo|evp|svp|vp|head|director|manager|lead)\b/i.test(
+    title,
+  );
+}
+
+function numericGrade(value: string): number {
+  const match = value.match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function percentile(values: number[], ratio: number): number {
+  const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor((sorted.length - 1) * ratio)),
+  );
+  return sorted[index];
+}
+
+export function buildSuccessionPlanningPortfolio(
+  input: SuccessionPlanningPortfolioInput,
+): SuccessionPlanningPortfolio {
+  const nameFields = orgColumnCandidates(input.columnMapping, "Full Name", [
+    "full_name",
+    "name",
+    "employee_name",
+  ]);
+  const roleFields = orgColumnCandidates(
+    input.columnMapping,
+    "Business Title",
+    ["position_title", "title", "business_title"],
+  );
+  const departmentFields = orgColumnCandidates(
+    input.columnMapping,
+    "Department Name",
+    ["department", "department_name", "dept"],
+  );
+  const gradeFields = orgColumnCandidates(input.columnMapping, "Compensation Grade", [
+    "grade",
+    "compensation_grade",
+    "level",
+  ]);
+  const costFields = [
+    mappedColumn(input.columnMapping, "Annual Compensation"),
+    mappedColumn(input.columnMapping, "Annual Rate"),
+    "loaded_cost",
+    "total_annual_compensation",
+    "annual_compensation",
+    "annual_rate",
+    "salary",
+  ];
+  const managerFields = orgColumnCandidates(input.columnMapping, "Manager ID", [
+    "manager_id",
+    "managerid",
+    "parentid",
+    "parent_id",
+  ]);
+
+  const assignments = input.dataset.states.asIs.activityAssignments;
+  const roleRequirements = input.dataset.states.asIs.roleSkillRequirements;
+  const employeeSkills = input.dataset.states.asIs.employeeSkills;
+  const activityRequirements = input.dataset.shared.activitySkillRequirements;
+  const skillLibrary = input.dataset.shared.skillLibrary;
+  const activitiesById = new Map(
+    input.dataset.shared.activityLibrary.map((activity) => [
+      textValue(activity, "activity_id"),
+      activity,
+    ]),
+  );
+  const skillById = new Map(
+    skillLibrary.map((skill) => [textValue(skill, "skill_id"), skill]),
+  );
+  const orgById = new Map(
+    input.orgRows.map((row) => [
+      textValue(row, input.orgEmployeeIdColumn),
+      row,
+    ]),
+  );
+
+  const spanByManager = new Map<string, number>();
+  for (const row of input.orgRows) {
+    const managerId = firstText(row, managerFields);
+    if (!managerId) continue;
+    spanByManager.set(managerId, (spanByManager.get(managerId) ?? 0) + 1);
+  }
+
+  const workloadByEmployee = new Map<string, number>();
+  for (const assignment of assignments) {
+    const employeeId = textValue(assignment, "employee_id");
+    workloadByEmployee.set(
+      employeeId,
+      (workloadByEmployee.get(employeeId) ?? 0) +
+        (normalizeNumber(assignment.time_allocation_pct) ?? 0),
+    );
+  }
+
+  const employeeSkillsByEmployee = new Map<string, EmployeeSkillRow[]>();
+  for (const skill of employeeSkills) {
+    const employeeId = textValue(skill, "employee_id");
+    if (!employeeSkillsByEmployee.has(employeeId))
+      employeeSkillsByEmployee.set(employeeId, []);
+    employeeSkillsByEmployee.get(employeeId)!.push(skill);
+  }
+
+  const criticalSkillSupply = new Map<string, Set<string>>();
+  for (const skill of employeeSkills) {
+    const skillId = textValue(skill, "skill_id");
+    const libraryRow = skillById.get(skillId);
+    if (!libraryRow || textValue(libraryRow, "criticality") !== "High") continue;
+    const currentLevel = normalizeNumber(skill.current_level) ?? 0;
+    if (currentLevel < 3) continue;
+    if (!criticalSkillSupply.has(skillId)) criticalSkillSupply.set(skillId, new Set());
+    criticalSkillSupply.get(skillId)!.add(textValue(skill, "employee_id"));
+  }
+  const scarceCriticalSkillIds = new Set(
+    [...criticalSkillSupply.entries()]
+      .filter(([, employees]) => employees.size <= 1)
+      .map(([skillId]) => skillId),
+  );
+
+  const roleRequirementMatches = (row: ExcelRow, req: RoleSkillRequirementRow) => {
+    const role = firstText(row, roleFields);
+    const roleKey = textValue(row, "role_key");
+    const department = firstText(row, departmentFields);
+    return (
+      (!!roleKey && roleKey === textValue(req, "role_key")) ||
+      (!!role && role === textValue(req, "role_key")) ||
+      (!!role && role === textValue(req, "position_title")) ||
+      (!!role &&
+        role.toLowerCase() === textValue(req, "position_title").toLowerCase() &&
+        (!textValue(req, "department") ||
+          textValue(req, "department") === department))
+    );
+  };
+
+  const requirementsForEmployee = (row: ExcelRow) =>
+    roleRequirements.filter((req) => roleRequirementMatches(row, req));
+
+  const costs = input.orgRows.map((row) => firstNumber(row, costFields, 0));
+  const topCostQuartile = percentile(costs, 0.75);
+
+  const criticalRoleCandidates = input.orgRows
+    .map((row) => {
+      const employeeId = textValue(row, input.orgEmployeeIdColumn);
+      const employeeName = firstText(row, nameFields) || employeeId;
+      const role = firstText(row, roleFields);
+      const department = firstText(row, departmentFields);
+      const grade = firstText(row, gradeFields);
+      const loadedCost = firstNumber(row, costFields, 0);
+      const span = spanByManager.get(employeeId) ?? 0;
+      const workload = workloadByEmployee.get(employeeId) ?? 0;
+      const requirements = requirementsForEmployee(row);
+      const employeeSkillRows = employeeSkillsByEmployee.get(employeeId) ?? [];
+      const heldScarceCriticalSkills = employeeSkillRows.filter((skill) =>
+        scarceCriticalSkillIds.has(textValue(skill, "skill_id")),
+      ).length;
+      const criticalActivityDetails = assignments
+        .filter((assignment) => textValue(assignment, "employee_id") === employeeId)
+        .flatMap((assignment) => {
+          const activity = activitiesById.get(textValue(assignment, "activity_id"));
+          if (
+            !activity ||
+            textValue(activity, "criticality") !== "High" ||
+            !/accountable/i.test(textValue(assignment, "accountability"))
+          ) {
+            return [];
+          }
+          return [{
+            assignment,
+            activity,
+          }];
+        })
+        .map(({ assignment, activity }) => ({
+          activityId: textValue(activity, "activity_id"),
+          activityName: textValue(activity, "activity_name"),
+          criticality: textValue(activity, "criticality"),
+          timeAllocationPct:
+            normalizeNumber(assignment.time_allocation_pct) ?? 0,
+          accountability: textValue(assignment, "accountability"),
+        }));
+
+      const seniorGrade = numericGrade(grade) >= 7;
+      const critical =
+        seniorGrade ||
+        titleLooksCritical(role) ||
+        span >= 5 ||
+        criticalActivityDetails.length > 0 ||
+        heldScarceCriticalSkills > 0 ||
+        (topCostQuartile > 0 && loadedCost >= topCostQuartile);
+      const criticalityScore =
+        (seniorGrade ? 15 : 0) +
+        (titleLooksCritical(role) ? 20 : 0) +
+        Math.min(span * 3, 24) +
+        criticalActivityDetails.length * 20 +
+        heldScarceCriticalSkills * 15 +
+        (topCostQuartile > 0 && loadedCost >= topCostQuartile ? 12 : 0);
+
+      return {
+        row,
+        employeeId,
+        employeeName,
+        role,
+        department,
+        grade,
+        loadedCost,
+        span,
+        workload,
+        requirements,
+        critical,
+        criticalityScore,
+        criticalActivityDetails,
+        criticalSkillsHeld: heldScarceCriticalSkills,
+      };
+    })
+    .filter((role) => role.critical);
+
+  const criticalEmployeeIds = new Set(
+    criticalRoleCandidates.map((role) => role.employeeId),
+  );
+  const selectedRecords = input.successionCandidates ?? [];
+  const selectedRecordsByPair = new Map(
+    selectedRecords.map((record) => [
+      selectedCandidateKey(
+        record.target_employee_id,
+        record.candidate_employee_id,
+      ),
+      record,
+    ]),
+  );
+  const selectedByCandidate = new Map<string, SuccessionCandidateRecord[]>();
+  for (const record of selectedRecords.filter(
+    (item) => item.selected_flag || isSelectedSuccessionStatus(item.status),
+  )) {
+    const candidateId = record.candidate_employee_id;
+    if (!selectedByCandidate.has(candidateId))
+      selectedByCandidate.set(candidateId, []);
+    selectedByCandidate.get(candidateId)!.push(record);
+  }
+
+  const scoreCandidate = (
+    targetRequirements: RoleSkillRequirementRow[],
+    candidateRow: ExcelRow,
+  ) => {
+    const candidateId = textValue(candidateRow, input.orgEmployeeIdColumn);
+    const skills = new Map(
+      (employeeSkillsByEmployee.get(candidateId) ?? []).map((skill) => [
+        textValue(skill, "skill_id"),
+        skill,
+      ]),
+    );
+    let totalWeight = 0;
+    let weightedScore = 0;
+    let coveredSkills = 0;
+    let minorGaps = 0;
+    let majorGaps = 0;
+    let criticalGaps = 0;
+    const skillDetails = targetRequirements.map((req) => {
+      const skillId = textValue(req, "skill_id");
+      const requiredLevel = normalizeNumber(req.required_level) ?? 0;
+      const currentLevel =
+        normalizeNumber(skills.get(skillId)?.current_level) ?? 0;
+      const criticality = textValue(req, "criticality");
+      const weight =
+        criticality === "High" ? 3 : criticality === "Medium" ? 2 : 1;
+      const gap = Math.max(0, requiredLevel - currentLevel);
+      const gapStatus: SkillGapStatus =
+        gap === 0 ? "Covered" : gap === 1 ? "Minor gap" : "Major gap";
+      totalWeight += weight;
+      weightedScore +=
+        (requiredLevel > 0 ? Math.min(currentLevel / requiredLevel, 1) : 0) *
+        weight;
+      if (gap === 0) coveredSkills++;
+      else if (gap === 1) minorGaps++;
+      else majorGaps++;
+      if (gap >= 2 && criticality === "High") criticalGaps++;
+      return {
+        skillId,
+        skillName:
+          (skillById.get(skillId)
+            ? textValue(skillById.get(skillId)!, "skill_name")
+            : "") ||
+          textValue(req, "skill_name") ||
+          skillId,
+        requiredLevel,
+        currentLevel,
+        criticality,
+        gap,
+        gapStatus,
+      };
+    });
+    const readinessScore =
+      totalWeight > 0 ? (weightedScore / totalWeight) * 100 : 0;
+    return {
+      readinessScore,
+      readinessStatus: readinessStatusFor(readinessScore),
+      coveredSkills,
+      minorGaps,
+      majorGaps,
+      criticalGaps,
+      skillDetails,
+    };
+  };
+
+  const allCandidates: SuccessionCandidateMetric[] = [];
+  const criticalRoles: SuccessionCriticalRoleMetric[] = [];
+
+  for (const target of criticalRoleCandidates) {
+    const targetRequirements = target.requirements;
+    const ranked = input.orgRows
+      .filter((row) => {
+        const employeeId = textValue(row, input.orgEmployeeIdColumn);
+        return employeeId && employeeId !== target.employeeId && !criticalEmployeeIds.has(employeeId);
+      })
+      .map((candidateRow) => {
+        const candidateId = textValue(candidateRow, input.orgEmployeeIdColumn);
+        const score = scoreCandidate(targetRequirements, candidateRow);
+        const selected =
+          selectedRecordsByPair.get(
+            selectedCandidateKey(target.employeeId, candidateId),
+          ) ?? null;
+        const selectedCount = selectedByCandidate.get(candidateId)?.length ?? 0;
+        const currentWorkloadPct = workloadByEmployee.get(candidateId) ?? 0;
+        const attentionReasons = [
+          selectedCount >= 2 ? "Selected for multiple roles" : "",
+          currentWorkloadPct > 110 ? "Capacity risk" : "",
+        ].filter(Boolean);
+        return {
+          targetEmployeeId: target.employeeId,
+          candidateEmployeeId: candidateId,
+          candidateName: firstText(candidateRow, nameFields) || candidateId,
+          currentRole: firstText(candidateRow, roleFields),
+          department: firstText(candidateRow, departmentFields),
+          grade: firstText(candidateRow, gradeFields),
+          readinessScore: score.readinessScore,
+          readinessStatus:
+            selected?.readiness_status ?? score.readinessStatus,
+          rank: 0,
+          status: selected?.status ?? "Suggested",
+          selectedFlag:
+            selected?.selected_flag ??
+            (selected ? isSelectedSuccessionStatus(selected.status) : false),
+          coveredSkills: score.coveredSkills,
+          minorGaps: score.minorGaps,
+          majorGaps: score.majorGaps,
+          criticalGaps: score.criticalGaps,
+          currentWorkloadPct,
+          alreadySelectedFor: selectedCount,
+          attentionFlag:
+            selected?.attention_flag ?? attentionReasons.length > 0,
+          attentionReason:
+            selected?.attention_reason ?? attentionReasons.join("; "),
+          skillDetails: score.skillDetails,
+        } satisfies SuccessionCandidateMetric;
+      })
+      .filter(
+        (candidate) =>
+          targetRequirements.length === 0 || candidate.readinessScore > 0,
+      )
+      .sort(
+        (a, b) =>
+          b.readinessScore - a.readinessScore ||
+          a.currentWorkloadPct - b.currentWorkloadPct ||
+          a.candidateName.localeCompare(b.candidateName),
+      )
+      .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+
+    allCandidates.push(...ranked);
+    const readyCandidates = ranked.filter(
+      (candidate) =>
+        candidate.status !== "Rejected" && candidate.readinessScore >= 70,
+    );
+    const bestReadiness = ranked[0]?.readinessScore ?? 0;
+    const requiredCriticalSkills = targetRequirements.filter(
+      (req) => textValue(req, "criticality") === "High",
+    ).length;
+    let successionRisk: SuccessionRiskStatus =
+      readyCandidates.length === 0
+        ? "High"
+        : readyCandidates.length === 1
+          ? "Medium"
+          : "Low";
+    if (readyCandidates.some((candidate) => candidate.readinessScore >= 85)) {
+      successionRisk = readyCandidates.length === 1 ? "Low" : successionRisk;
+    }
+    if (target.criticalActivityDetails.length > 0 && readyCandidates.length === 0)
+      successionRisk = "High";
+    const riskReasons = [
+      readyCandidates.length === 0 ? "No candidate above 70% readiness" : "",
+      readyCandidates.length === 1 ? "Only one ready successor" : "",
+      target.criticalActivityDetails.length > 0
+        ? "Owns high-criticality activities"
+        : "",
+    ].filter(Boolean);
+
+    criticalRoles.push({
+      employeeId: target.employeeId,
+      employeeName: target.employeeName,
+      role: target.role,
+      department: target.department,
+      grade: target.grade,
+      span: target.span,
+      loadedCost: target.loadedCost,
+      currentWorkloadPct: target.workload,
+      criticalityScore: target.criticalityScore,
+      criticalActivitiesOwned: target.criticalActivityDetails.length,
+      criticalActivityDetails: target.criticalActivityDetails,
+      criticalSkillsHeld: target.criticalSkillsHeld,
+      requiredCriticalSkills,
+      successorCount: readyCandidates.length,
+      bestSuccessorReadiness: bestReadiness,
+      successionRisk,
+      riskReasons,
+    });
+  }
+
+  const successorLoads: SuccessionLoadMetric[] = [...selectedByCandidate.entries()]
+    .map(([candidateId, records]) => {
+      const candidateRow = orgById.get(candidateId);
+      const candidateName = firstText(candidateRow, nameFields) || candidateId;
+      const departments = new Set(
+        records
+          .map((record) => criticalRoles.find((role) => role.employeeId === record.target_employee_id)?.department)
+          .filter(Boolean),
+      );
+      const targetRoles = records.map((record) => {
+        const target = criticalRoles.find(
+          (role) => role.employeeId === record.target_employee_id,
+        );
+        return target
+          ? `${target.employeeName} - ${target.role}`
+          : record.target_employee_id;
+      });
+      const currentWorkloadPct = workloadByEmployee.get(candidateId) ?? 0;
+      const isCriticalIncumbent = criticalEmployeeIds.has(candidateId);
+      const averageReadiness =
+        records.reduce((sum, record) => sum + record.readiness_score, 0) /
+        Math.max(records.length, 1);
+      let conflictRisk: SuccessionConflictRisk = "None";
+      let recommendedAction = "No action required";
+      if (records.length >= 3) {
+        conflictRisk = "High conflict";
+        recommendedAction = "Choose alternate successors for lower-priority roles.";
+      } else if (records.length >= 2) {
+        conflictRisk = "Attention";
+        recommendedAction = "Confirm prioritization across selected roles.";
+      }
+      if (departments.size > 1) {
+        conflictRisk = "Review required";
+        recommendedAction = "Review cross-department succession ownership.";
+      }
+      if (currentWorkloadPct > 110) {
+        conflictRisk = "Capacity risk";
+        recommendedAction = "Reduce workload or identify a backup successor.";
+      }
+      if (isCriticalIncumbent) {
+        conflictRisk = "Backfill risk";
+        recommendedAction = "Backfill candidate's current critical role first.";
+      }
+      return {
+        candidateEmployeeId: candidateId,
+        candidateName,
+        selectedTargetRoles: targetRoles,
+        selectedTargetCount: records.length,
+        averageReadiness,
+        currentWorkloadPct,
+        conflictRisk,
+        recommendedAction,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.selectedTargetCount - a.selectedTargetCount ||
+        b.currentWorkloadPct - a.currentWorkloadPct ||
+        a.candidateName.localeCompare(b.candidateName),
+    );
+
+  const rolesWithoutSuccessor = criticalRoles.filter(
+    (role) => role.successorCount === 0,
+  ).length;
+  const rolesWithOneSuccessor = criticalRoles.filter(
+    (role) => role.successorCount === 1,
+  ).length;
+  const averageSuccessorReadiness =
+    criticalRoles.length > 0
+      ? criticalRoles.reduce(
+          (sum, role) => sum + role.bestSuccessorReadiness,
+          0,
+        ) / criticalRoles.length
+      : 0;
+  const highRiskRoles = criticalRoles.filter(
+    (role) => role.successionRisk === "High",
+  ).length;
+  const duplicateSuccessorFlags = successorLoads.filter(
+    (load) => load.selectedTargetCount >= 2,
+  ).length;
+  const criticalActivityDependency = criticalRoles.filter(
+    (role) => role.criticalActivitiesOwned > 0,
+  ).length;
+
+  return {
+    kpis: {
+      criticalRoles: criticalRoles.length,
+      rolesWithoutSuccessor,
+      rolesWithOneSuccessor,
+      averageSuccessorReadiness,
+      highRiskRoles,
+      duplicateSuccessorFlags,
+      criticalActivityDependency,
+    },
+    criticalRoles: criticalRoles.sort(
+      (a, b) =>
+        b.criticalityScore - a.criticalityScore ||
+        a.employeeName.localeCompare(b.employeeName),
+    ),
+    candidates: allCandidates,
+    successorLoads,
+    filterOptions: {
+      departments: Array.from(
+        new Set(criticalRoles.map((role) => role.department).filter(Boolean)),
+      ).sort(),
+      riskStatuses: ["High", "Medium", "Low"],
+      readinessStatuses: [
+        "Ready Now",
+        "Ready Soon",
+        "Development Needed",
+        "Not Recommended",
+      ],
+      candidateStatuses: ["Suggested", "Selected", "Rejected", "Backup"],
     },
   };
 }

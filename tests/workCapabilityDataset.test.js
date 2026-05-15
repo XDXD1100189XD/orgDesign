@@ -22,6 +22,7 @@ const {
   buildWorkCapabilityActivityPortfolio,
   buildActivityAnalysisPortfolio,
   buildSkillsCapabilityPortfolio,
+  buildSuccessionPlanningPortfolio,
   buildWorkCapabilityTaxonomyCleanupSuggestions,
   buildWorkCapabilityTaxonomyGraph,
   canHardDeleteWorkCapabilityActivity,
@@ -658,6 +659,186 @@ test("builds skills capability portfolio metrics and readiness scores", () => {
 
   const skill = portfolio.skills.find((s) => s.skillId === "SK001");
   assert.equal(skill?.singlePointRisk, "High", "SK001 single-point risk");
+});
+
+test("skills capability keeps activities with missing skill data as Unknown risk", () => {
+  const datasetWithRequirements = createWorkCapabilityDataset({
+    orgDatasetId: "org_1",
+    files: allFiles(),
+    orgRows,
+    orgEmployeeIdColumn: "employee_id",
+  });
+  const dataset = {
+    ...datasetWithRequirements,
+    shared: {
+      ...datasetWithRequirements.shared,
+      activitySkillRequirements: [],
+    },
+  };
+
+  const portfolio = buildSkillsCapabilityPortfolio({
+    dataset,
+    orgRows,
+    orgEmployeeIdColumn: "employee_id",
+    columnMapping: null,
+  });
+
+  const activity = portfolio.activities.find(
+    (row) => row.activityId === "ACT001",
+  );
+
+  assert.ok(activity, "activity should remain visible in activity-skill risk");
+  assert.equal(activity.skillRisk, "Unknown");
+  assert.equal(activity.requiredSkills, 0);
+  assert.equal(activity.lowestSkillCoveragePct, 0);
+});
+
+test("builds succession planning portfolio with critical roles and ranked candidates", () => {
+  const successionOrgRows = [
+    ...orgRows,
+    {
+      employee_id: "E3",
+      name: "Cara",
+      position_title: "Senior Analyst",
+      department: "Ops",
+      loaded_cost: 70,
+      FTE: 1,
+    },
+    {
+      employee_id: "E4",
+      name: "Dev",
+      position_title: "Director",
+      department: "Ops",
+      loaded_cost: 110,
+      FTE: 1,
+    },
+  ];
+  const dataset = createWorkCapabilityDataset({
+    orgDatasetId: "org_1",
+    files: allFiles({
+      employee_skills: [
+        ...employeeSkillRows,
+        {
+          ...employeeSkillRows[0],
+          employee_skill_id: "ES002",
+          employee_id: "E3",
+          current_level: 4,
+        },
+        {
+          ...employeeSkillRows[0],
+          employee_skill_id: "ES003",
+          employee_id: "E4",
+          current_level: 2,
+        },
+      ],
+    }),
+    orgRows: successionOrgRows,
+    orgEmployeeIdColumn: "employee_id",
+  });
+
+  const portfolio = buildSuccessionPlanningPortfolio({
+    dataset,
+    orgRows: successionOrgRows,
+    orgEmployeeIdColumn: "employee_id",
+    columnMapping: null,
+  });
+
+  const manager = portfolio.criticalRoles.find(
+    (role) => role.employeeId === "E2",
+  );
+  assert.ok(manager, "manager role should be critical");
+  assert.equal(manager.successorCount, 1);
+  assert.equal(manager.bestSuccessorReadiness, 100);
+  assert.equal(manager.successionRisk, "Low");
+
+  const candidates = portfolio.candidates.filter(
+    (candidate) => candidate.targetEmployeeId === "E2",
+  );
+  assert.equal(candidates[0].candidateEmployeeId, "E3");
+  assert.equal(candidates[0].readinessStatus, "Ready Now");
+  assert.equal(candidates[0].coveredSkills, 1);
+});
+
+test("succession planning flags duplicate selected successors and workload conflicts", () => {
+  const successionOrgRows = [
+    ...orgRows,
+    {
+      employee_id: "E3",
+      name: "Cara",
+      position_title: "Senior Analyst",
+      department: "Ops",
+      loaded_cost: 70,
+      FTE: 1,
+    },
+  ];
+  const dataset = createWorkCapabilityDataset({
+    orgDatasetId: "org_1",
+    files: allFiles({
+      activity_assignments: [
+        ...activityAssignmentsRows,
+        {
+          ...activityAssignmentsRows[0],
+          assignment_id: "ASN003",
+          employee_id: "E3",
+          activity_id: "ACT001",
+          time_allocation_pct: 120,
+        },
+      ],
+      employee_skills: [
+        ...employeeSkillRows,
+        {
+          ...employeeSkillRows[0],
+          employee_skill_id: "ES002",
+          employee_id: "E3",
+          current_level: 4,
+        },
+      ],
+    }),
+    orgRows: successionOrgRows,
+    orgEmployeeIdColumn: "employee_id",
+  });
+
+  const portfolio = buildSuccessionPlanningPortfolio({
+    dataset,
+    orgRows: successionOrgRows,
+    orgEmployeeIdColumn: "employee_id",
+    columnMapping: null,
+    successionCandidates: [
+      {
+        target_employee_id: "E1",
+        candidate_employee_id: "E3",
+        readiness_score: 100,
+        readiness_status: "Ready Now",
+        rank: 1,
+        status: "Selected",
+        selected_flag: true,
+        already_selected_count: 2,
+        attention_flag: true,
+        attention_reason: "Selected for multiple roles",
+      },
+      {
+        target_employee_id: "E2",
+        candidate_employee_id: "E3",
+        readiness_score: 100,
+        readiness_status: "Ready Now",
+        rank: 1,
+        status: "Selected",
+        selected_flag: true,
+        already_selected_count: 2,
+        attention_flag: true,
+        attention_reason: "Selected for multiple roles",
+      },
+    ],
+  });
+
+  const load = portfolio.successorLoads.find(
+    (row) => row.candidateEmployeeId === "E3",
+  );
+  assert.ok(load, "selected candidate should appear in load/conflict view");
+  assert.equal(load.selectedTargetCount, 2);
+  assert.equal(load.conflictRisk, "Capacity risk");
+  assert.match(load.recommendedAction, /workload|backup/i);
+  assert.ok(load.currentWorkloadPct > 110);
 });
 
 test("builds taxonomy as domain category process activity hierarchy", () => {
@@ -1503,7 +1684,10 @@ test("blocks hard delete when dependent rows exist", () => {
 test("Work & Capability UI is present after org upload and is not persisted to localStorage", () => {
   const page = fs.readFileSync("src/app/page.tsx", "utf8");
 
-  assert.match(page, /type Tab = .*"work-capability"/s);
+  assert.match(page, /type Tab\s*=\s*[\s\S]*"work-capability"/);
+  assert.match(page, /"succession-planning"/);
+  assert.match(page, /useState<SuccessionCandidateRecord\[\]>/);
+  assert.match(page, /<SuccessionPlanningView/);
   assert.match(page, /label: "Work & Capability"/);
   assert.match(page, /useState<WorkCapabilityDataset \| null>\(null\)/);
   assert.match(page, /workCapabilityDataset/);
@@ -1526,7 +1710,7 @@ test("Work & Capability upload is a multi-step modal and hides issues until impo
   assert.match(page, /\{hasImportAttempted && \(/);
   assert.match(
     page,
-    /\{hasImportAttempted && normalization && normalization\.totalGroups > 0 && \(/,
+    /\{hasImportAttempted\s*&&\s*normalization\s*&&\s*normalization\.totalGroups > 0\s*&&\s*\(/,
   );
   assert.match(css, /\.workCapabilityModalOverlay/);
   assert.match(css, /\.workCapabilityStepper/);

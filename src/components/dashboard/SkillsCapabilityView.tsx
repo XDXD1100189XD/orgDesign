@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type {
+  ActivitySkillRisk,
+  RoleReadinessStatus,
+  SkillsCapabilityActivityMetric,
   SkillsCapabilityPortfolio,
   SkillsCapabilityRoleMetric,
-  SkillsCapabilityActivityMetric,
   SkillsCapabilitySkillMetric,
   WorkCapabilityDataset,
 } from "../../lib/workCapabilityDataset";
-import type { ExcelRow } from "../../lib/parseExcel";
-import type { ColumnMapping } from "../../lib/fieldDictionary";
 import { buildSkillsCapabilityPortfolio } from "../../lib/workCapabilityDataset";
+import type { ColumnMapping } from "../../lib/fieldDictionary";
+import type { ExcelRow } from "../../lib/parseExcel";
+import styles from "./SkillsCapabilityView.module.css";
 
 interface SkillsCapabilityViewProps {
   dataset: WorkCapabilityDataset | null;
@@ -24,14 +27,87 @@ type TabType =
   | "activity-risk"
   | "skill-coverage";
 
+type HeatmapView = "department-family" | "role-skill" | "employee-skill";
+
+const tabs: Array<{ id: TabType; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "gap-heatmap", label: "Skill Gap Heatmap" },
+  { id: "role-readiness", label: "Role Readiness" },
+  { id: "activity-risk", label: "Activity-Skill Risk" },
+  { id: "skill-coverage", label: "Skill Coverage" },
+];
+
+const ROLE_READINESS_TABLE_LIMIT = 100;
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function roleReadinessRowKey(role: SkillsCapabilityRoleMetric) {
+  return `${role.employeeId}::${role.role}::${role.department}`;
+}
+
+function pct(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
+function money(value: number) {
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  });
+}
+
+function riskClass(
+  value: ActivitySkillRisk | RoleReadinessStatus | "High" | "Medium" | "Low",
+) {
+  if (value === "High" || value === "High capability risk") {
+    return styles.badgeRed;
+  }
+  if (value === "Medium" || value === "Development needed") {
+    return styles.badgeOrange;
+  }
+  if (value === "Minor gaps") {
+    return styles.badgeAmber;
+  }
+  if (value === "Ready" || value === "Low") {
+    return styles.badgeGreen;
+  }
+  return styles.badgeNeutral;
+}
+
+function heatClass(value: number) {
+  if (value >= 3) return styles.heatHigh;
+  if (value >= 2) return styles.heatMedium;
+  if (value > 0) return styles.heatLow;
+  return styles.heatNone;
+}
+
 export default function SkillsCapabilityView({
   dataset,
   orgRows,
   orgEmployeeIdColumn,
   columnMapping,
 }: SkillsCapabilityViewProps) {
-  const portfolio = useMemo(() => {
-    if (!dataset || !columnMapping) return null;
+  const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [heatmapView, setHeatmapView] =
+    useState<HeatmapView>("department-family");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedRoleKey, setSelectedRoleKey] = useState<string | null>(null);
+  const [selectedFilters, setSelectedFilters] = useState({
+    department: "",
+    skillFamily: "",
+    criticality: "",
+    riskStatus: "",
+    skillRisk: "",
+  });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const portfolio = useMemo<SkillsCapabilityPortfolio | null>(() => {
+    if (!dataset) return null;
     try {
       return buildSkillsCapabilityPortfolio({
         dataset,
@@ -45,32 +121,16 @@ export default function SkillsCapabilityView({
     }
   }, [dataset, orgRows, orgEmployeeIdColumn, columnMapping]);
 
-  if (!portfolio) {
-    return (
-      <div className="p-6">
-        <div className="text-center text-gray-500">
-          Unable to load Skills & Capability data. Please check your dataset.
-        </div>
-      </div>
-    );
-  }
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedFilters, setSelectedFilters] = useState({
-    department: "",
-    skillFamily: "",
-    criticality: "",
-    riskStatus: "",
-    skillRisk: "",
-  });
-
   const filteredRoles = useMemo(() => {
+    if (!portfolio) return [];
+
+    const query = searchTerm.trim().toLowerCase();
     return portfolio.roles.filter((role) => {
       const matchesSearch =
-        !searchTerm ||
-        role.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        role.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        role.department.toLowerCase().includes(searchTerm.toLowerCase());
+        !query ||
+        role.employeeName.toLowerCase().includes(query) ||
+        role.role.toLowerCase().includes(query) ||
+        role.department.toLowerCase().includes(query);
       const matchesDepartment =
         !selectedFilters.department ||
         role.department === selectedFilters.department;
@@ -79,13 +139,15 @@ export default function SkillsCapabilityView({
         role.riskStatus === selectedFilters.riskStatus;
       return matchesSearch && matchesDepartment && matchesRiskStatus;
     });
-  }, [portfolio.roles, searchTerm, selectedFilters]);
+  }, [portfolio, searchTerm, selectedFilters]);
 
   const filteredActivities = useMemo(() => {
+    if (!portfolio) return [];
+
+    const query = searchTerm.trim().toLowerCase();
     return portfolio.activities.filter((activity) => {
       const matchesSearch =
-        !searchTerm ||
-        activity.activityName.toLowerCase().includes(searchTerm.toLowerCase());
+        !query || activity.activityName.toLowerCase().includes(query);
       const matchesCriticality =
         !selectedFilters.criticality ||
         activity.criticality === selectedFilters.criticality;
@@ -94,14 +156,17 @@ export default function SkillsCapabilityView({
         activity.skillRisk === selectedFilters.skillRisk;
       return matchesSearch && matchesCriticality && matchesSkillRisk;
     });
-  }, [portfolio.activities, searchTerm, selectedFilters]);
+  }, [portfolio, searchTerm, selectedFilters]);
 
   const filteredSkills = useMemo(() => {
+    if (!portfolio) return [];
+
+    const query = searchTerm.trim().toLowerCase();
     return portfolio.skills.filter((skill) => {
       const matchesSearch =
-        !searchTerm ||
-        skill.skillName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        skill.skillFamily.toLowerCase().includes(searchTerm.toLowerCase());
+        !query ||
+        skill.skillName.toLowerCase().includes(query) ||
+        skill.skillFamily.toLowerCase().includes(query);
       const matchesSkillFamily =
         !selectedFilters.skillFamily ||
         skill.skillFamily === selectedFilters.skillFamily;
@@ -110,605 +175,801 @@ export default function SkillsCapabilityView({
         skill.criticality === selectedFilters.criticality;
       return matchesSearch && matchesSkillFamily && matchesCriticality;
     });
-  }, [portfolio.skills, searchTerm, selectedFilters]);
+  }, [portfolio, searchTerm, selectedFilters]);
 
-  const renderOverviewTab = () => (
-    <div className="space-y-6">
-      {/* Skill Gaps by Department Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Skill Gaps by Department</h3>
-        <div className="space-y-2">
-          {portfolio.filterOptions.departments.map((dept) => {
-            const deptRoles = portfolio.roles.filter(
-              (role) => role.department === dept,
-            );
-            const majorGaps = deptRoles.reduce(
-              (sum, role) => sum + role.majorGaps,
-              0,
-            );
-            const maxGaps = Math.max(
-              ...portfolio.filterOptions.departments.map((d) =>
-                portfolio.roles
-                  .filter((r) => r.department === d)
-                  .reduce((sum, r) => sum + r.majorGaps, 0),
-              ),
-            );
-            const width = maxGaps > 0 ? (majorGaps / maxGaps) * 100 : 0;
+  const selectedRole = useMemo(() => {
+    if (!portfolio || !selectedRoleKey) return null;
+    return portfolio.roles.find(
+      (role) => roleReadinessRowKey(role) === selectedRoleKey,
+    );
+  }, [portfolio, selectedRoleKey]);
+
+  if (!mounted) {
+    return <CenterState message="Loading Skills & Capability data..." />;
+  }
+
+  if (!portfolio) {
+    return (
+      <CenterState message="Unable to load Skills & Capability data. Please check your dataset." />
+    );
+  }
+
+  const updateFilter = (key: keyof typeof selectedFilters, value: string) => {
+    setSelectedFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <div className={styles.wrap}>
+      <header className={styles.header}>
+        <div>
+          <div className={styles.eyebrow}>Work & Capability Analysis</div>
+          <h2 className={styles.title}>Skills & Capability</h2>
+          <p className={styles.subtitle}>
+            Deterministic readiness, skill gap, activity coverage, and
+            single-point capability risk from uploaded work datasets.
+          </p>
+        </div>
+        <div className={styles.controls}>
+          <input
+            className={styles.input}
+            type="search"
+            placeholder="Search roles, skills, activities..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+          <select
+            className={styles.select}
+            value={selectedFilters.department}
+            onChange={(event) => updateFilter("department", event.target.value)}
+          >
+            <option value="">All departments</option>
+            {portfolio.filterOptions.departments.map((department) => (
+              <option key={department} value={department}>
+                {department || "No department"}
+              </option>
+            ))}
+          </select>
+          <select
+            className={styles.select}
+            value={selectedFilters.skillFamily}
+            onChange={(event) =>
+              updateFilter("skillFamily", event.target.value)
+            }
+          >
+            <option value="">All skill families</option>
+            {portfolio.filterOptions.skillFamilies.map((family) => (
+              <option key={family} value={family}>
+                {family || "No family"}
+              </option>
+            ))}
+          </select>
+          <button className={styles.secondaryButton} type="button">
+            Export
+          </button>
+        </div>
+      </header>
+
+      <KpiStrip portfolio={portfolio} />
+
+      <section className={styles.panel}>
+        <nav className={styles.tabs} aria-label="Skills capability views">
+          {tabs.map((tab) => (
+            <button
+              className={cx(
+                styles.tab,
+                activeTab === tab.id && styles.tabActive,
+              )}
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+        <div className={styles.panelBody}>
+          {activeTab === "overview" && (
+            <OverviewTab portfolio={portfolio} activities={filteredActivities} />
+          )}
+          {activeTab === "gap-heatmap" && (
+            <GapHeatmapTab
+              portfolio={portfolio}
+              heatmapView={heatmapView}
+              onHeatmapViewChange={setHeatmapView}
+            />
+          )}
+          {activeTab === "role-readiness" && (
+            <RoleReadinessTab
+              roles={filteredRoles}
+              onSelectRole={setSelectedRoleKey}
+            />
+          )}
+          {activeTab === "activity-risk" && (
+            <ActivityRiskTab activities={filteredActivities} />
+          )}
+          {activeTab === "skill-coverage" && (
+            <SkillCoverageTab skills={filteredSkills} />
+          )}
+        </div>
+      </section>
+
+      {selectedRole && (
+        <RoleDetailDrawer
+          role={selectedRole}
+          onClose={() => setSelectedRoleKey(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CenterState({ message }: { message: string }) {
+  return (
+    <div className={styles.centerState}>
+      <div className={styles.spinner} aria-hidden="true" />
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function KpiStrip({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
+  const kpis = [
+    ["Critical skills", portfolio.kpis.criticalSkills, styles.metricBlue],
+    ["Major skill gaps", portfolio.kpis.majorSkillGaps, styles.metricRed],
+    ["Avg readiness", pct(portfolio.kpis.averageReadiness), styles.metricGreen],
+    [
+      "Roles below 70%",
+      portfolio.kpis.rolesBelow70PctReadiness,
+      styles.metricOrange,
+    ],
+    [
+      "Activities at risk",
+      portfolio.kpis.activitiesAtSkillRisk,
+      styles.metricPurple,
+    ],
+    [
+      "Single-point skills",
+      portfolio.kpis.singlePointCriticalSkills,
+      styles.metricRed,
+    ],
+    [
+      "Unvalidated skills",
+      portfolio.kpis.unvalidatedSyntheticSkills,
+      styles.metricNeutral,
+    ],
+  ];
+
+  return (
+    <section className={styles.kpiGrid}>
+      {kpis.map(([label, value, tone]) => (
+        <article className={styles.kpiCard} key={String(label)}>
+          <div className={cx(styles.kpiValue, String(tone))}>{value}</div>
+          <div className={styles.kpiLabel}>{label}</div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function OverviewTab({
+  portfolio,
+  activities,
+}: {
+  portfolio: SkillsCapabilityPortfolio;
+  activities: SkillsCapabilityActivityMetric[];
+}) {
+  const maxDepartmentGaps = Math.max(
+    1,
+    ...portfolio.filterOptions.departments.map((department) =>
+      portfolio.roles
+        .filter((role) => role.department === department)
+        .reduce((sum, role) => sum + role.majorGaps, 0),
+    ),
+  );
+  const maxSkillCoverage = Math.max(
+    1,
+    ...portfolio.skills.map((skill) => skill.employeesAtLevel3Plus),
+  );
+  const readinessBuckets: Array<[string, SkillsCapabilityRoleMetric[]]> = [
+    ["85-100%", portfolio.roles.filter((role) => role.readinessScore >= 85)],
+    [
+      "70-85%",
+      portfolio.roles.filter(
+        (role) => role.readinessScore >= 70 && role.readinessScore < 85,
+      ),
+    ],
+    [
+      "50-70%",
+      portfolio.roles.filter(
+        (role) => role.readinessScore >= 50 && role.readinessScore < 70,
+      ),
+    ],
+    ["0-50%", portfolio.roles.filter((role) => role.readinessScore < 50)],
+  ];
+  const topRoleRisks = portfolio.roles
+    .filter((role) => role.majorGaps > 0)
+    .slice(0, 8);
+  const topActivityRisks = activities
+    .filter((activity) => activity.skillRisk === "High")
+    .slice(0, 5);
+  const topSinglePointRisks = portfolio.skills
+    .filter((skill) => skill.singlePointRisk === "High")
+    .slice(0, 5);
+
+  return (
+    <div className={styles.overviewGrid}>
+      <ChartCard title="Skill Gaps by Department">
+        <div className={styles.barList}>
+          {portfolio.filterOptions.departments.map((department) => {
+            const majorGaps = portfolio.roles
+              .filter((role) => role.department === department)
+              .reduce((sum, role) => sum + role.majorGaps, 0);
             return (
-              <div key={dept} className="flex items-center space-x-2">
-                <div className="w-32 text-sm truncate">
-                  {dept || "No Department"}
-                </div>
-                <div className="flex-1 bg-gray-200 rounded-full h-4">
-                  <div
-                    className="bg-red-500 h-4 rounded-full"
-                    style={{ width: `${width}%` }}
-                  ></div>
-                </div>
-                <div className="w-12 text-sm text-right">{majorGaps}</div>
-              </div>
+              <MetricBar
+                key={department || "blank"}
+                label={department || "No department"}
+                value={majorGaps}
+                width={(majorGaps / maxDepartmentGaps) * 100}
+                tone="red"
+              />
             );
           })}
         </div>
-      </div>
+      </ChartCard>
 
-      {/* Critical Skill Coverage Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Critical Skill Coverage</h3>
-        <div className="space-y-2">
+      <ChartCard title="Critical Skill Coverage">
+        <div className={styles.barList}>
           {portfolio.skills
             .filter((skill) => skill.criticality === "High")
             .slice(0, 10)
-            .map((skill) => {
-              const coverage = skill.employeesAtLevel3Plus;
-              const maxCoverage = Math.max(
-                ...portfolio.skills.map((s) => s.employeesAtLevel3Plus),
-              );
-              const width =
-                maxCoverage > 0 ? (coverage / maxCoverage) * 100 : 0;
-              return (
-                <div
-                  key={skill.skillId}
-                  className="flex items-center space-x-2"
-                >
-                  <div className="w-32 text-sm truncate">{skill.skillName}</div>
-                  <div className="flex-1 bg-gray-200 rounded-full h-4">
-                    <div
-                      className="bg-green-500 h-4 rounded-full"
-                      style={{ width: `${width}%` }}
-                    ></div>
-                  </div>
-                  <div className="w-12 text-sm text-right">{coverage}</div>
-                </div>
-              );
-            })}
+            .map((skill) => (
+              <MetricBar
+                key={skill.skillId}
+                label={skill.skillName}
+                value={skill.employeesAtLevel3Plus}
+                width={(skill.employeesAtLevel3Plus / maxSkillCoverage) * 100}
+                tone="green"
+              />
+            ))}
         </div>
-      </div>
+      </ChartCard>
 
-      {/* Readiness Distribution */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Readiness Distribution</h3>
-        <div className="grid grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {portfolio.roles.filter((r) => r.readinessScore >= 85).length}
+      <ChartCard title="Readiness Distribution">
+        <div className={styles.distributionGrid}>
+          {readinessBuckets.map(([label, rows], index) => (
+            <div className={styles.distributionCard} key={String(label)}>
+              <strong
+                className={cx(
+                  index === 0 && styles.metricGreen,
+                  index === 1 && styles.metricAmber,
+                  index === 2 && styles.metricOrange,
+                  index === 3 && styles.metricRed,
+                )}
+              >
+                {rows.length}
+              </strong>
+              <span>{label}</span>
             </div>
-            <div className="text-sm text-gray-600">85–100%</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-yellow-600">
-              {
-                portfolio.roles.filter(
-                  (r) => r.readinessScore >= 70 && r.readinessScore < 85,
-                ).length
-              }
-            </div>
-            <div className="text-sm text-gray-600">70–85%</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-orange-600">
-              {
-                portfolio.roles.filter(
-                  (r) => r.readinessScore >= 50 && r.readinessScore < 70,
-                ).length
-              }
-            </div>
-            <div className="text-sm text-gray-600">50–70%</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">
-              {portfolio.roles.filter((r) => r.readinessScore < 50).length}
-            </div>
-            <div className="text-sm text-gray-600">0–50%</div>
-          </div>
+          ))}
         </div>
-      </div>
+      </ChartCard>
 
-      {/* Top Capability Risks Table */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Top Capability Risks</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
+      <article className={cx(styles.card, styles.fullWidth)}>
+        <div className={styles.cardHeader}>
+          <h3>Top Capability Risks</h3>
+          <span>Roles, activities, and single-point skill dependencies</span>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
             <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Risk Type</th>
-                <th className="text-left py-2">Role/Activity</th>
-                <th className="text-left py-2">Department</th>
-                <th className="text-left py-2">Skill</th>
-                <th className="text-left py-2">Gap</th>
-                <th className="text-left py-2">Suggested Action</th>
+              <tr>
+                <th>Risk type</th>
+                <th>Role / Activity</th>
+                <th>Department</th>
+                <th>Skill</th>
+                <th>Gap</th>
+                <th>Suggested action</th>
               </tr>
             </thead>
             <tbody>
-              {portfolio.roles
-                .filter((role) => role.majorGaps > 0)
-                .slice(0, 10)
-                .map((role) => (
-                  <tr key={role.employeeId} className="border-b">
-                    <td className="py-2">Major gap in critical skill</td>
-                    <td className="py-2">{role.role}</td>
-                    <td className="py-2">{role.department}</td>
-                    <td className="py-2">
-                      {role.skillDetails
-                        .filter(
-                          (s) =>
-                            s.gapStatus === "Major gap" &&
-                            s.criticality === "High",
-                        )
-                        .map((s) => s.skillName)
-                        .join(", ")}
-                    </td>
-                    <td className="py-2">{role.majorGaps}</td>
-                    <td className="py-2">Upskill / hire</td>
-                  </tr>
-                ))}
-              {portfolio.activities
-                .filter((activity) => activity.skillRisk === "High")
-                .slice(0, 5)
-                .map((activity) => (
-                  <tr key={activity.activityId} className="border-b">
-                    <td className="py-2">Activity skill coverage &lt;50%</td>
-                    <td className="py-2">{activity.activityName}</td>
-                    <td className="py-2">-</td>
-                    <td className="py-2">
-                      {activity.skillCoverageDetails
-                        .filter((s) => s.coveragePct < 50)
-                        .map((s) => s.skillName)
-                        .join(", ")}
-                    </td>
-                    <td className="py-2">{activity.majorSkillGaps}</td>
-                    <td className="py-2">Reassign or train</td>
-                  </tr>
-                ))}
-              {portfolio.skills
-                .filter((skill) => skill.singlePointRisk === "High")
-                .slice(0, 5)
-                .map((skill) => (
-                  <tr key={skill.skillId} className="border-b">
-                    <td className="py-2">Single-person skill</td>
-                    <td className="py-2">-</td>
-                    <td className="py-2">-</td>
-                    <td className="py-2">{skill.skillName}</td>
-                    <td className="py-2">1 person</td>
-                    <td className="py-2">Build backup</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderGapHeatmapTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">
-          Skill Gap Heatmap - Department × Skill Family
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Department</th>
-                {portfolio.filterOptions.skillFamilies.map((family) => (
-                  <th key={family} className="text-center py-2 text-xs">
-                    {family}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {portfolio.filterOptions.departments.map((dept) => (
-                <tr key={dept} className="border-b">
-                  <td className="py-2 font-medium">
-                    {dept || "No Department"}
+              {topRoleRisks.map((role) => (
+                <tr key={`role-${roleReadinessRowKey(role)}`}>
+                  <td>Major role gap</td>
+                  <td>{role.role}</td>
+                  <td>{role.department || "-"}</td>
+                  <td>
+                    {role.skillDetails
+                      .filter((skill) => skill.gapStatus === "Major gap")
+                      .map((skill) => skill.skillName)
+                      .join(", ") || "-"}
                   </td>
-                  {portfolio.filterOptions.skillFamilies.map((family) => {
-                    const deptRoles = portfolio.roles.filter(
-                      (r) => r.department === dept,
-                    );
-                    const familySkills = portfolio.skills.filter(
-                      (s) => s.skillFamily === family,
-                    );
-                    const majorGaps = deptRoles.reduce(
-                      (sum, role) =>
-                        sum +
-                        role.skillDetails.filter(
-                          (detail) =>
-                            familySkills.some(
-                              (skill) => skill.skillId === detail.skillId,
-                            ) && detail.gapStatus === "Major gap",
-                        ).length,
-                      0,
-                    );
-                    const intensity =
-                      majorGaps > 5
-                        ? 3
-                        : majorGaps > 2
-                          ? 2
-                          : majorGaps > 0
-                            ? 1
-                            : 0;
-                    const bgColor =
-                      intensity === 3
-                        ? "bg-red-500"
-                        : intensity === 2
-                          ? "bg-orange-400"
-                          : intensity === 1
-                            ? "bg-yellow-300"
-                            : "bg-gray-100";
-                    return (
-                      <td
-                        key={family}
-                        className={`text-center py-2 ${bgColor} text-white`}
-                      >
-                        {majorGaps || ""}
-                      </td>
-                    );
-                  })}
+                  <td>{role.majorGaps}</td>
+                  <td>Upskill / hire</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 text-sm text-gray-600">
-          Legend: White = No gaps, Yellow = Minor gaps, Orange = Moderate gaps,
-          Red = Major gaps
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderRoleReadinessTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Role Readiness</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Employee</th>
-                <th className="text-left py-2">Role</th>
-                <th className="text-left py-2">Department</th>
-                <th className="text-left py-2">Grade</th>
-                <th className="text-center py-2">Required</th>
-                <th className="text-center py-2">Covered</th>
-                <th className="text-center py-2">Minor Gaps</th>
-                <th className="text-center py-2">Major Gaps</th>
-                <th className="text-center py-2">Critical Gaps</th>
-                <th className="text-center py-2">Readiness %</th>
-                <th className="text-left py-2">Risk Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRoles.map((role) => (
-                <tr key={role.employeeId} className="border-b hover:bg-gray-50">
-                  <td className="py-2">{role.employeeName}</td>
-                  <td className="py-2">{role.role}</td>
-                  <td className="py-2">{role.department}</td>
-                  <td className="py-2">{role.grade}</td>
-                  <td className="py-2 text-center">{role.requiredSkills}</td>
-                  <td className="py-2 text-center">{role.coveredSkills}</td>
-                  <td className="py-2 text-center">{role.minorGaps}</td>
-                  <td className="py-2 text-center">{role.majorGaps}</td>
-                  <td className="py-2 text-center">{role.criticalGaps}</td>
-                  <td className="py-2 text-center">
-                    {role.readinessScore.toFixed(1)}%
+              {topActivityRisks.map((activity) => (
+                <tr key={`activity-${activity.activityId}`}>
+                  <td>Activity coverage risk</td>
+                  <td>{activity.activityName}</td>
+                  <td>-</td>
+                  <td>
+                    {activity.skillCoverageDetails
+                      .filter((skill) => skill.coveragePct < 50)
+                      .map((skill) => skill.skillName)
+                      .join(", ") || "-"}
                   </td>
-                  <td className="py-2">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        role.riskStatus === "Ready"
-                          ? "bg-green-100 text-green-800"
-                          : role.riskStatus === "Minor gaps"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : role.riskStatus === "Development needed"
-                              ? "bg-orange-100 text-orange-800"
-                              : "bg-red-100 text-red-800"
-                      }`}
-                    >
-                      {role.riskStatus}
-                    </span>
-                  </td>
+                  <td>{activity.majorSkillGaps}</td>
+                  <td>Reassign or train</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderActivityRiskTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Activity-Skill Risk</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Activity</th>
-                <th className="text-left py-2">Criticality</th>
-                <th className="text-center py-2">Assigned People</th>
-                <th className="text-center py-2">Required Skills</th>
-                <th className="text-center py-2">Lowest Coverage %</th>
-                <th className="text-center py-2">Major Skill Gaps</th>
-                <th className="text-left py-2">Skill Risk</th>
-                <th className="text-right py-2">Cost at Risk</th>
-                <th className="text-right py-2">FTE at Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredActivities.map((activity) => (
-                <tr
-                  key={activity.activityId}
-                  className="border-b hover:bg-gray-50"
-                >
-                  <td className="py-2">{activity.activityName}</td>
-                  <td className="py-2">{activity.criticality}</td>
-                  <td className="py-2 text-center">
-                    {activity.assignedPeople}
-                  </td>
-                  <td className="py-2 text-center">
-                    {activity.requiredSkills}
-                  </td>
-                  <td className="py-2 text-center">
-                    {activity.lowestSkillCoveragePct.toFixed(1)}%
-                  </td>
-                  <td className="py-2 text-center">
-                    {activity.majorSkillGaps}
-                  </td>
-                  <td className="py-2">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        activity.skillRisk === "High"
-                          ? "bg-red-100 text-red-800"
-                          : activity.skillRisk === "Medium"
-                            ? "bg-orange-100 text-orange-800"
-                            : activity.skillRisk === "Low"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {activity.skillRisk}
-                    </span>
-                  </td>
-                  <td className="py-2 text-right">
-                    ${activity.costAtRisk.toLocaleString()}
-                  </td>
-                  <td className="py-2 text-right">
-                    {activity.fteAtRisk.toFixed(1)}
-                  </td>
+              {topSinglePointRisks.map((skill) => (
+                <tr key={`skill-${skill.skillId}`}>
+                  <td>Single-point skill</td>
+                  <td>-</td>
+                  <td>-</td>
+                  <td>{skill.skillName}</td>
+                  <td>1 person</td>
+                  <td>Build backup</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSkillCoverageTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Skill Coverage</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2">Skill</th>
-                <th className="text-left py-2">Skill Family</th>
-                <th className="text-left py-2">Criticality</th>
-                <th className="text-center py-2">Employees with Skill</th>
-                <th className="text-center py-2">Level 3+</th>
-                <th className="text-center py-2">Level 4+</th>
-                <th className="text-center py-2">Departments</th>
-                <th className="text-center py-2">Activities Requiring</th>
-                <th className="text-center py-2">Roles Requiring</th>
-                <th className="text-left py-2">Single Point Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSkills.map((skill) => (
-                <tr key={skill.skillId} className="border-b hover:bg-gray-50">
-                  <td className="py-2">{skill.skillName}</td>
-                  <td className="py-2">{skill.skillFamily}</td>
-                  <td className="py-2">{skill.criticality}</td>
-                  <td className="py-2 text-center">
-                    {skill.employeesWithSkill}
-                  </td>
-                  <td className="py-2 text-center">
-                    {skill.employeesAtLevel3Plus}
-                  </td>
-                  <td className="py-2 text-center">
-                    {skill.employeesAtLevel4Plus}
-                  </td>
-                  <td className="py-2 text-center">
-                    {skill.departmentsCovered}
-                  </td>
-                  <td className="py-2 text-center">
-                    {skill.activitiesRequiringSkill}
-                  </td>
-                  <td className="py-2 text-center">
-                    {skill.rolesRequiringSkill}
-                  </td>
-                  <td className="py-2">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        skill.singlePointRisk === "High"
-                          ? "bg-red-100 text-red-800"
-                          : skill.singlePointRisk === "Medium"
-                            ? "bg-orange-100 text-orange-800"
-                            : "bg-green-100 text-green-800"
-                      }`}
-                    >
-                      {skill.singlePointRisk}
-                    </span>
-                  </td>
+              {topRoleRisks.length + topActivityRisks.length + topSinglePointRisks.length ===
+                0 && (
+                <tr>
+                  <td colSpan={6}>No capability risks found in current filters.</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
-      </div>
+      </article>
     </div>
   );
+}
+
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <article className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3>{title}</h3>
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function MetricBar({
+  label,
+  value,
+  width,
+  tone,
+}: {
+  label: string;
+  value: number;
+  width: number;
+  tone: "red" | "green";
+}) {
+  return (
+    <div className={styles.metricBar}>
+      <span title={label}>{label}</span>
+      <div className={styles.barTrack}>
+        <div
+          className={cx(
+            styles.barFill,
+            tone === "red" ? styles.barRed : styles.barGreen,
+          )}
+          style={{ width: `${Math.max(2, Math.min(100, width))}%` }}
+        />
+      </div>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function GapHeatmapTab({
+  portfolio,
+  heatmapView,
+  onHeatmapViewChange,
+}: {
+  portfolio: SkillsCapabilityPortfolio;
+  heatmapView: HeatmapView;
+  onHeatmapViewChange: (view: HeatmapView) => void;
+}) {
+  const rows =
+    heatmapView === "department-family"
+      ? portfolio.filterOptions.departments.map((department) => ({
+          key: department || "No department",
+          label: department || "No department",
+          roles: portfolio.roles.filter(
+            (role) => role.department === department,
+          ),
+        }))
+          : portfolio.roles.slice(0, 30).map((role) => ({
+              key: roleReadinessRowKey(role),
+          label:
+            heatmapView === "role-skill"
+              ? `${role.role} - ${role.employeeName}`
+              : role.employeeName,
+          roles: [role],
+        }));
+
+  const columns =
+    heatmapView === "department-family"
+      ? portfolio.filterOptions.skillFamilies
+      : portfolio.skills.slice(0, 16).map((skill) => skill.skillName);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <h2 className="text-2xl font-bold">Skills & Capability</h2>
-          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <select
-              value={selectedFilters.department}
-              onChange={(e) =>
-                setSelectedFilters({
-                  ...selectedFilters,
-                  department: e.target.value,
-                })
-              }
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+    <article className={styles.card}>
+      <div className={styles.cardHeaderRow}>
+        <div>
+          <h3>Skill Gap Heatmap</h3>
+          <span>Cell values show major gap count for the selected cut.</span>
+        </div>
+        <div className={styles.segmented}>
+          {[
+            ["department-family", "Department x Skill Family"],
+            ["role-skill", "Role x Skill"],
+            ["employee-skill", "Employee x Skill"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              className={cx(
+                styles.segment,
+                heatmapView === id && styles.segmentActive,
+              )}
+              type="button"
+              onClick={() => onHeatmapViewChange(id as HeatmapView)}
             >
-              <option value="">All Departments</option>
-              {portfolio.filterOptions.departments.map((dept) => (
-                <option key={dept} value={dept}>
-                  {dept}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedFilters.skillFamily}
-              onChange={(e) =>
-                setSelectedFilters({
-                  ...selectedFilters,
-                  skillFamily: e.target.value,
-                })
-              }
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Skill Families</option>
-              {portfolio.filterOptions.skillFamilies.map((family) => (
-                <option key={family} value={family}>
-                  {family}
-                </option>
-              ))}
-            </select>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-              Export
+              {label}
             </button>
-          </div>
+          ))}
         </div>
       </div>
-
-      {/* KPI Strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-blue-600">
-            {portfolio.kpis.criticalSkills}
-          </div>
-          <div className="text-sm text-gray-600">Critical Skills</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-red-600">
-            {portfolio.kpis.majorSkillGaps}
-          </div>
-          <div className="text-sm text-gray-600">Major Skill Gaps</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-green-600">
-            {portfolio.kpis.averageReadiness.toFixed(1)}%
-          </div>
-          <div className="text-sm text-gray-600">Avg Readiness</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-orange-600">
-            {portfolio.kpis.rolesBelow70PctReadiness}
-          </div>
-          <div className="text-sm text-gray-600">Roles Below 70%</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-purple-600">
-            {portfolio.kpis.activitiesAtSkillRisk}
-          </div>
-          <div className="text-sm text-gray-600">Activities at Risk</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-red-600">
-            {portfolio.kpis.singlePointCriticalSkills}
-          </div>
-          <div className="text-sm text-gray-600">Single-Point Skills</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow text-center">
-          <div className="text-2xl font-bold text-gray-600">
-            {portfolio.kpis.unvalidatedSyntheticSkills}
-          </div>
-          <div className="text-sm text-gray-600">Unvalidated Skills</div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="border-b">
-          <nav className="flex">
-            {[
-              { id: "overview", label: "Overview" },
-              { id: "gap-heatmap", label: "Gap Heatmap" },
-              { id: "role-readiness", label: "Role Readiness" },
-              { id: "activity-risk", label: "Activity-Skill Risk" },
-              { id: "skill-coverage", label: "Skill Coverage" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as TabType)}
-                className={`px-6 py-3 text-sm font-medium border-b-2 ${
-                  activeTab === tab.id
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                {tab.label}
-              </button>
+      <div className={styles.tableScroll}>
+        <table className={styles.heatmap}>
+          <thead>
+            <tr>
+              <th>{heatmapView === "department-family" ? "Department" : "Role"}</th>
+              {columns.map((column) => (
+                <th key={column}>{column}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td>{row.label}</td>
+                {columns.map((column) => {
+                  const majorGaps = row.roles.reduce((sum, role) => {
+                    return (
+                      sum +
+                      role.skillDetails.filter((detail) => {
+                        if (heatmapView === "department-family") {
+                          const skill = portfolio.skills.find(
+                            (item) => item.skillId === detail.skillId,
+                          );
+                          return (
+                            skill?.skillFamily === column &&
+                            detail.gapStatus === "Major gap"
+                          );
+                        }
+                        return (
+                          detail.skillName === column &&
+                          detail.gapStatus === "Major gap"
+                        );
+                      }).length
+                    );
+                  }, 0);
+                  return (
+                    <td key={column} className={heatClass(majorGaps)}>
+                      {majorGaps || ""}
+                    </td>
+                  );
+                })}
+              </tr>
             ))}
-          </nav>
-        </div>
-        <div className="p-6">
-          {activeTab === "overview" && renderOverviewTab()}
-          {activeTab === "gap-heatmap" && renderGapHeatmapTab()}
-          {activeTab === "role-readiness" && renderRoleReadinessTab()}
-          {activeTab === "activity-risk" && renderActivityRiskTab()}
-          {activeTab === "skill-coverage" && renderSkillCoverageTab()}
-        </div>
+          </tbody>
+        </table>
       </div>
+      <div className={styles.legend}>
+        <span>0 = Covered</span>
+        <span>1 = Minor watch</span>
+        <span>2+ = Moderate gap</span>
+        <span>3+ = Major gap</span>
+      </div>
+    </article>
+  );
+}
+
+function RoleReadinessTab({
+  roles,
+  onSelectRole,
+}: {
+  roles: SkillsCapabilityRoleMetric[];
+  onSelectRole: (roleKey: string) => void;
+}) {
+  const visibleRoles = roles.slice(0, ROLE_READINESS_TABLE_LIMIT);
+  const hiddenRoleCount = Math.max(0, roles.length - visibleRoles.length);
+
+  return (
+    <article className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3>Role Readiness</h3>
+        <span>Click a row to inspect required skills and gaps.</span>
+      </div>
+      {hiddenRoleCount > 0 && (
+        <div className={styles.tableNotice}>
+          Showing first {ROLE_READINESS_TABLE_LIMIT.toLocaleString()} of{" "}
+          {roles.length.toLocaleString()} matching role-readiness rows. Use
+          search or filters to narrow the list.
+        </div>
+      )}
+      <div className={styles.tableScroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Role</th>
+              <th>Department</th>
+              <th>Grade</th>
+              <th>Required</th>
+              <th>Covered</th>
+              <th>Minor gaps</th>
+              <th>Major gaps</th>
+              <th>Critical gaps</th>
+              <th>Readiness</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRoles.map((role) => (
+              <tr
+                className={styles.clickRow}
+                key={roleReadinessRowKey(role)}
+                onClick={() => onSelectRole(roleReadinessRowKey(role))}
+              >
+                <td>{role.employeeName}</td>
+                <td>{role.role}</td>
+                <td>{role.department || "-"}</td>
+                <td>{role.grade || "-"}</td>
+                <td>{role.requiredSkills}</td>
+                <td>{role.coveredSkills}</td>
+                <td>{role.minorGaps}</td>
+                <td>{role.majorGaps}</td>
+                <td>{role.criticalGaps}</td>
+                <td>{pct(role.readinessScore)}</td>
+                <td>
+                  <span className={cx(styles.badge, riskClass(role.riskStatus))}>
+                    {role.riskStatus}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {roles.length === 0 && (
+              <tr>
+                <td colSpan={11}>No roles match the current filters.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function ActivityRiskTab({
+  activities,
+}: {
+  activities: SkillsCapabilityActivityMetric[];
+}) {
+  return (
+    <article className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3>Activity-Skill Risk</h3>
+        <span>Coverage joins assigned people to activity skill requirements.</span>
+      </div>
+      <div className={styles.tableScroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Activity</th>
+              <th>Criticality</th>
+              <th>People</th>
+              <th>Required skills</th>
+              <th>Lowest coverage</th>
+              <th>Major gaps</th>
+              <th>Risk</th>
+              <th>Cost at risk</th>
+              <th>FTE at risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activities.map((activity) => (
+              <tr key={activity.activityId}>
+                <td>{activity.activityName}</td>
+                <td>{activity.criticality || "-"}</td>
+                <td>{activity.assignedPeople}</td>
+                <td>{activity.requiredSkills}</td>
+                <td>
+                  {activity.skillRisk === "Unknown"
+                    ? "Unknown"
+                    : pct(activity.lowestSkillCoveragePct)}
+                </td>
+                <td>{activity.majorSkillGaps}</td>
+                <td>
+                  <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
+                    {activity.skillRisk}
+                  </span>
+                </td>
+                <td>{money(activity.costAtRisk)}</td>
+                <td>{activity.fteAtRisk.toFixed(1)}</td>
+              </tr>
+            ))}
+            {activities.length === 0 && (
+              <tr>
+                <td colSpan={9}>No activities match the current filters.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function SkillCoverageTab({
+  skills,
+}: {
+  skills: SkillsCapabilitySkillMetric[];
+}) {
+  return (
+    <article className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3>Skill Coverage</h3>
+        <span>Supply, demand, departments covered, and single-point risk.</span>
+      </div>
+      <div className={styles.tableScroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Skill</th>
+              <th>Family</th>
+              <th>Criticality</th>
+              <th>Employees</th>
+              <th>Level 3+</th>
+              <th>Level 4+</th>
+              <th>Departments</th>
+              <th>Activities</th>
+              <th>Roles</th>
+              <th>Single point risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            {skills.map((skill) => (
+              <tr key={skill.skillId}>
+                <td>{skill.skillName}</td>
+                <td>{skill.skillFamily || "-"}</td>
+                <td>{skill.criticality || "-"}</td>
+                <td>{skill.employeesWithSkill}</td>
+                <td>{skill.employeesAtLevel3Plus}</td>
+                <td>{skill.employeesAtLevel4Plus}</td>
+                <td>{skill.departmentsCovered}</td>
+                <td>{skill.activitiesRequiringSkill}</td>
+                <td>{skill.rolesRequiringSkill}</td>
+                <td>
+                  <span
+                    className={cx(styles.badge, riskClass(skill.singlePointRisk))}
+                  >
+                    {skill.singlePointRisk}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {skills.length === 0 && (
+              <tr>
+                <td colSpan={10}>No skills match the current filters.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function RoleDetailDrawer({
+  role,
+  onClose,
+}: {
+  role: SkillsCapabilityRoleMetric;
+  onClose: () => void;
+}) {
+  return (
+    <aside className={styles.drawer} aria-label="Role capability detail">
+      <div className={styles.drawerHead}>
+        <div>
+          <div className={styles.eyebrow}>Role detail</div>
+          <h3>{role.employeeName}</h3>
+          <p>
+            {role.role} - {role.department || "No department"}
+          </p>
+        </div>
+        <button className={styles.iconButton} type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <div className={styles.drawerMetrics}>
+        <MiniMetric label="Readiness" value={pct(role.readinessScore)} />
+        <MiniMetric label="Required" value={role.requiredSkills} />
+        <MiniMetric label="Covered" value={role.coveredSkills} />
+        <MiniMetric label="Major gaps" value={role.majorGaps} />
+      </div>
+      <div className={styles.drawerSection}>
+        <h4>Required skills</h4>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Skill</th>
+              <th>Required</th>
+              <th>Current</th>
+              <th>Gap</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {role.skillDetails.map((skill) => (
+              <tr key={skill.skillId}>
+                <td>{skill.skillName}</td>
+                <td>{skill.requiredLevel}</td>
+                <td>{skill.currentLevel}</td>
+                <td>{skill.gap}</td>
+                <td>
+                  <span
+                    className={cx(
+                      styles.badge,
+                      skill.gapStatus === "Covered"
+                        ? styles.badgeGreen
+                        : skill.gapStatus === "Minor gap"
+                          ? styles.badgeAmber
+                          : styles.badgeRed,
+                    )}
+                  >
+                    {skill.gapStatus}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className={styles.drawerSection}>
+        <h4>Activities impacted</h4>
+        <p className={styles.drawerNote}>
+          {role.activitiesImpacted.length > 0
+            ? role.activitiesImpacted.join(", ")
+            : "No assigned activities currently show a required-skill gap for this role."}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className={styles.miniMetric}>
+      <strong>{value}</strong>
+      <span>{label}</span>
     </div>
   );
 }

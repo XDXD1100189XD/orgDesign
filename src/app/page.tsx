@@ -48,6 +48,7 @@ import {
   buildWorkCapabilityActivityPortfolio,
   buildActivityAnalysisPortfolio,
   buildSkillsCapabilityPortfolio,
+  buildSuccessionPlanningPortfolio,
   buildWorkCapabilityTaxonomyCleanupSuggestions,
   buildWorkCapabilityTaxonomyGraph,
   createWorkCapabilityDataset,
@@ -70,6 +71,7 @@ import {
   type ActivityAnalysisActivityMetric,
   type ActivityAnalysisEmployeeMetric,
   type SkillsCapabilityPortfolio,
+  type SuccessionCandidateRecord,
   type WorkCapabilityArchiveImpact,
   type WorkCapabilityMergeImpact,
   type WorkCapabilityDataset,
@@ -98,6 +100,7 @@ const AIAssistantView = dynamic(
 
 import ActivityAnalysisView from "@/components/dashboard/ActivityAnalysisView";
 import SkillsCapabilityView from "@/components/dashboard/SkillsCapabilityView";
+import SuccessionPlanningView from "@/components/dashboard/SuccessionPlanningView";
 
 type Tab =
   | "summary"
@@ -110,7 +113,8 @@ type Tab =
   | "ai"
   | "work-capability"
   | "activity-analysis"
-  | "skills-capability";
+  | "skills-capability"
+  | "succession-planning";
 type StateSlice = "as-is" | "to-be";
 type CompTarget = StateSlice | "both";
 
@@ -125,6 +129,7 @@ const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "work-capability", num: "09", label: "Work & Capability" },
   { key: "activity-analysis", num: "10", label: "Activity Analysis" },
   { key: "skills-capability", num: "11", label: "Skills & Capability" },
+  { key: "succession-planning", num: "12", label: "Succession Planning" },
 ];
 const READINESS_TAB = {
   key: "readiness" as Tab,
@@ -191,6 +196,7 @@ export default function HomePage() {
   const [showChangeDrawer, setShowChangeDrawer] = useState(false);
   const [workCapabilityDataset, setWorkCapabilityDataset] =
     useState<WorkCapabilityDataset | null>(null);
+  const [successionCandidates, setSuccessionCandidates] = useState<SuccessionCandidateRecord[]>([]);
 
   // ── Graph version — incremented on every row/hierarchy mutation ──
   const [graphVersion, setGraphVersion] = useState(0);
@@ -1820,6 +1826,24 @@ export default function HomePage() {
             columnMapping?.["Employee ID"]?.column ?? "employee_id"
           }
           columnMapping={columnMapping}
+        />
+      </div>
+
+      <div
+        data-view="succession-planning"
+        style={{
+          display: activeTab === "succession-planning" ? "block" : "none",
+        }}
+      >
+        <SuccessionPlanningView
+          dataset={workCapabilityDataset}
+          orgRows={asIsMutatedRows ?? excelRows ?? []}
+          orgEmployeeIdColumn={
+            columnMapping?.["Employee ID"]?.column ?? "employee_id"
+          }
+          columnMapping={columnMapping}
+          successionCandidates={successionCandidates}
+          onSuccessionCandidatesChange={setSuccessionCandidates}
         />
       </div>
 
