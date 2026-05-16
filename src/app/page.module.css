@@ -1965,3 +1965,423 @@
   .metricStrip { grid-template-columns: 1fr; }
   .metricCard { border-right: none; border-bottom: 1px solid rgba(0,0,0,0.06); }
 }
+
+/* ── Workflow Page 1 revamp ──────────────────────────────── */
+
+.workCapabilitySnapshotLine {
+  font-size: 13px;
+  color: var(--slate);
+  line-height: 1.6;
+  padding: 10px 16px;
+  background: var(--cream);
+  border-left: 3px solid var(--teal-deep, #006b6b);
+  border-radius: 3px;
+  margin-bottom: 14px;
+}
+
+.workCapabilityVisualRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workCapabilityVisualCard {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+  background: var(--white);
+  padding: 14px 16px;
+}
+
+.workCapabilityVisualCard > strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.workCapabilityVisualBar {
+  display: grid;
+  grid-template-columns: 90px 1fr 60px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.workCapabilityVisualBarLabel {
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workCapabilityVisualBarTrack {
+  height: 8px;
+  background: rgba(0,0,0,0.07);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.workCapabilityVisualBarFill {
+  height: 100%;
+  background: var(--teal-deep, #006b6b);
+  border-radius: 3px;
+  min-width: 4px;
+}
+
+.workCapabilityVisualBarFillRed {
+  height: 100%;
+  background: #dc2626;
+  border-radius: 3px;
+  min-width: 4px;
+}
+
+.workCapabilityVisualBarFillAmber {
+  height: 100%;
+  background: #d97706;
+  border-radius: 3px;
+  min-width: 4px;
+}
+
+.workCapabilityVisualBarValue {
+  font-size: 11px;
+  color: var(--slate);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.workCapabilityReviewBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 107, 107, 0.06);
+  border: 1px solid rgba(0, 107, 107, 0.22);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #006b6b;
+  margin-bottom: 8px;
+}
+
+.workCapabilityReviewBanner span { flex: 1; }
+
+.workCapabilityReviewBanner button {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid #006b6b;
+  border-radius: 3px;
+  background: transparent;
+  color: #006b6b;
+  cursor: pointer;
+}
+
+.workCapabilityFiltersDetail {
+  position: relative;
+}
+
+.workCapabilityFiltersDetail summary::-webkit-details-marker { display: none; }
+
+.workCapabilityFiltersDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: var(--white);
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 400px;
+}
+
+@media (max-width: 900px) {
+  .workCapabilityVisualRow { grid-template-columns: 1fr; }
+  .workCapabilityTreemapGrid { flex-direction: column; }
+}
+
+/* ── Visual row right-stack ─────────────────────────────── */
+.workCapabilityVisualRightStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.workCapabilityVisualRightStack .workCapabilityVisualCard { flex: 1; }
+
+.workCapabilityQualityStats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 6px;
+}
+.workCapabilityQualityStats > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.workCapabilityQualityNum {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.workCapabilityQualityLabel {
+  font-size: 12px;
+  color: var(--slate);
+}
+.workCapabilityQualityLabel span {
+  font-size: 10px;
+  color: var(--slate-light);
+  margin-left: 2px;
+}
+
+.workCapabilityAutoSavingBig {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+.workCapabilityAutoSavingSub {
+  font-size: 11px;
+  color: var(--slate-light);
+  margin-bottom: 8px;
+}
+
+/* ── Taxonomy Treemap ───────────────────────────────────── */
+.workCapabilityTreemapSection {
+  margin-bottom: 20px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  background: var(--white);
+  padding: 16px 18px;
+}
+
+.workCapabilityTreemapHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workCapabilityTreemapTitle {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.workCapabilityTreemapSub {
+  display: block;
+  font-size: 11px;
+  color: var(--slate-light);
+  max-width: 560px;
+}
+
+.workCapabilityTreemapToggleGroup {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.workCapabilityTreemapToggle {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--slate);
+  cursor: pointer;
+}
+.workCapabilityTreemapToggle:hover { background: rgba(0,0,0,0.04); }
+
+.workCapabilityTreemapToggleActive {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border: 1px solid #006b6b;
+  border-radius: 3px;
+  background: #006b6b;
+  color: var(--white, #fff);
+  cursor: pointer;
+}
+
+.workCapabilityTreemapGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.workCapabilityTreemapTileLarge,
+.workCapabilityTreemapTileMedium,
+.workCapabilityTreemapTileSmall {
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 6px;
+  background: #f8f9fa;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.workCapabilityTreemapTileLarge:hover,
+.workCapabilityTreemapTileMedium:hover,
+.workCapabilityTreemapTileSmall:hover {
+  border-color: #006b6b;
+  background: #f0fafa;
+}
+.workCapabilityTreemapTileLarge  { min-width: 180px; flex: 3 1 180px; }
+.workCapabilityTreemapTileMedium { min-width: 140px; flex: 2 1 140px; }
+.workCapabilityTreemapTileSmall  { min-width: 110px; flex: 1 1 110px; }
+
+.workCapabilityTreemapTileActive {
+  border-color: #006b6b !important;
+  background: #e6f7f7 !important;
+}
+
+.workCapabilityTreemapTileTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workCapabilityTreemapTileMetric {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--teal-deep, #006b6b);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.workCapabilityTreemapTileMeta {
+  font-size: 10px;
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.workCapabilityTreemapCritBadge {
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.workCapabilityTreemapActiveHint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #006b6b;
+  padding: 6px 10px;
+  background: rgba(0,107,107,0.06);
+  border: 1px solid rgba(0,107,107,0.2);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workCapabilityTreemapActiveHint button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #006b6b;
+  border-radius: 3px;
+  background: transparent;
+  color: #006b6b;
+  cursor: pointer;
+}
+
+.workCapabilityTreemapBreadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.workCapabilityTreemapBreadcrumbBtn {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border: 1px solid rgba(0,107,107,0.3);
+  border-radius: 3px;
+  background: transparent;
+  color: #006b6b;
+  cursor: pointer;
+}
+.workCapabilityTreemapBreadcrumbBtn:hover { background: rgba(0,107,107,0.06); }
+
+.workCapabilityTreemapBreadcrumbSep {
+  color: var(--slate-light);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.workCapabilityTreemapBreadcrumbCurrent {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  font-weight: 600;
+  padding: 2px 6px;
+}
+
+.workCapabilityTreemapOtherList {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.workCapabilityTreemapOtherLabel {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--slate-light);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.workCapabilityTreemapOtherItem {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 3px;
+  background: #f5f7f8;
+  color: var(--slate);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.workCapabilityTreemapOtherItem:hover {
+  border-color: #006b6b;
+  background: #f0fafa;
+  color: #006b6b;
+}

@@ -1,0 +1,419 @@
+/* ── Succession Planning cockpit layout ── */
+
+.sectionPanel {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.6);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.sectionSubtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--slate-light);
+}
+
+.sectionBody {
+  padding: 18px;
+}
+
+/* Two-column overview */
+.overviewCols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.overviewCard {
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 4px;
+  background: rgba(248, 250, 252, 0.45);
+}
+
+.coverageSectionLabel {
+  margin: 20px 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+/* Three-column grid */
+.threeCol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Coverage status */
+.coverageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.coverageCard {
+  padding: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.coverageValue {
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.coverageLabel {
+  display: block;
+  margin-top: 6px;
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Cockpit split panel */
+.cockpit {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  height: 500px;
+}
+
+.cockpitLeft {
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cockpitFilters {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.7);
+  flex-shrink: 0;
+}
+
+.cockpitList {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.roleRow {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.roleRow:hover {
+  background: rgba(0, 107, 107, 0.04);
+}
+
+.roleRowSelected {
+  background: rgba(0, 107, 107, 0.08);
+}
+
+.roleRowName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roleRowMeta {
+  font-size: 11px;
+  color: var(--slate-light);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cockpitRight {
+  padding: 18px;
+  overflow-y: auto;
+}
+
+/* Role profile */
+.profileName {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.profileRole {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--slate-2);
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.profileMetric {
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 4px;
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.profileMetric strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.profileMetric span {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+}
+
+.profileActivitiesTitle {
+  margin: 14px 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.emptyProfile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+  color: var(--slate-light);
+  font-size: 13px;
+}
+
+/* Section mini-label */
+.miniLabel {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+/* Attention flags */
+.flagList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flagItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.flagRed {
+  border: 1px solid rgba(185, 28, 28, 0.2);
+  background: rgba(185, 28, 28, 0.04);
+}
+
+.flagOrange {
+  border: 1px solid rgba(234, 88, 12, 0.2);
+  background: rgba(234, 88, 12, 0.04);
+}
+
+.flagAmber {
+  border: 1px solid rgba(180, 123, 20, 0.2);
+  background: rgba(180, 123, 20, 0.04);
+}
+
+.flagDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.dotRed {
+  background: var(--red);
+}
+
+.dotOrange {
+  background: #ea580c;
+}
+
+.dotAmber {
+  background: var(--accent);
+}
+
+.flagEmpty {
+  padding: 28px;
+  text-align: center;
+  color: var(--slate-light);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Candidate helper text */
+.candidateHelper {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--slate-light);
+  line-height: 1.45;
+}
+
+.noSameDeptNote {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 4px;
+  background: rgba(248, 250, 252, 0.6);
+  font-size: 12px;
+  color: var(--slate);
+}
+
+/* Cross-functional collapsible section */
+.crossSection {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.crossSummary {
+  display: block;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: rgba(248, 250, 252, 0.85);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+  user-select: none;
+  list-style: none;
+}
+
+.crossSummary::-webkit-details-marker {
+  display: none;
+}
+
+details[open] > .crossSummary {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  color: var(--ink);
+}
+
+.crossContent {
+  padding: 12px;
+}
+
+/* Show-more button */
+.showMoreBtn {
+  margin-top: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 4px;
+  background: transparent;
+  padding: 8px 14px;
+  color: var(--slate-light);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.showMoreBtn:hover {
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--ink);
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .cockpit {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .cockpitLeft {
+    border-right: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    height: 280px;
+  }
+
+  .cockpitRight {
+    max-height: 420px;
+  }
+
+  .overviewCols {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .profileGrid,
+  .threeCol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coverageGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sectionBody {
+    padding: 14px;
+  }
+}

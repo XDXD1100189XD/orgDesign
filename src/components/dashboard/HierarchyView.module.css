@@ -370,3 +370,88 @@
   font-family: var(--font-mono); font-size: 10px; color: var(--slate-light);
   margin-left: auto;
 }
+
+/* ── Layer selector ── */
+.layerSelector {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--white); border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 3px; padding: 2px 4px;
+}
+.layerLabel {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--slate-2); padding: 0 5px 0 2px;
+  border-right: 1px solid rgba(0,0,0,0.08); margin-right: 2px;
+}
+.layerBtn {
+  background: transparent; border: none; color: var(--slate-2);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  width: 24px; height: 24px; border-radius: 2px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.layerBtn:hover { background: var(--cream-2); color: var(--ink); }
+.layerBtnActive { background: var(--ink) !important; color: var(--cream) !important; }
+
+/* ── View mode toggle (Tree / Sunburst) ── */
+.viewToggle {
+  display: flex; align-items: center;
+  background: var(--white); border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 3px; padding: 2px; gap: 2px;
+}
+.viewToggleBtn {
+  background: transparent; border: none; color: var(--slate-2);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; padding: 4px 10px; border-radius: 2px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.viewToggleBtn:hover { background: var(--cream-2); color: var(--ink); }
+.viewToggleBtnActive { background: var(--ink) !important; color: var(--cream) !important; }
+
+/* ── Filter selector and legend ── */
+.filterSelector {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--white); border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 3px; padding: 2px 4px;
+}
+.fieldsSelector { position: relative; }
+.fieldsSelector > summary { display: inline-flex; align-items: center; gap: 4px; }
+.fieldsSelector > summary::-webkit-details-marker { display: none; }
+.fieldsPopover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  background: var(--white); border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  padding: 8px 0; min-width: 160px; display: flex; flex-direction: column;
+}
+.fieldsOption {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px; cursor: pointer;
+  font-family: var(--font-body); font-size: 13px; color: var(--ink);
+  transition: background 0.1s;
+}
+.fieldsOption:hover { background: var(--cream); }
+.fieldsOption input[type="checkbox"] { accent-color: var(--teal); width: 14px; height: 14px; flex-shrink: 0; cursor: pointer; }
+.filterSelect {
+  border: none; outline: none; background: transparent;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.05em; color: var(--ink); cursor: pointer;
+  padding: 3px 4px;
+}
+.filterLegend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--white); border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 3px; font-family: var(--font-mono); font-size: 10px;
+}
+.filterLegendLabel {
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--slate-light); padding-right: 8px;
+  border-right: 1px solid rgba(0,0,0,0.1); margin-right: 4px;
+}
+.filterLegendItem {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--slate-2); font-size: 11px;
+}
+.filterLegendDot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+

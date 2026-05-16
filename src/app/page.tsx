@@ -81,6 +81,7 @@ import {
   type WorkCapabilityValidationSummary,
 } from "@/lib/workCapabilityDataset";
 import { parseExcelFile } from "@/lib/parseExcel";
+import { Treemap, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import styles from "./page.module.css";
 
@@ -2019,6 +2020,64 @@ function TaxonomyChartNode({ data }: { data: TaxonomyNodeData }) {
   );
 }
 
+const TAXONOMY_PALETTE = [
+  "#00474a", "#005c5f", "#006b6b", "#007a80", "#008f95", "#00a3aa",
+];
+
+type TreemapDrill =
+  | { level: "domain" }
+  | { level: "category"; domainId: string; domainLabel: string }
+  | { level: "process"; domainId: string; domainLabel: string; categoryId: string; categoryLabel: string };
+
+interface TaxonomyDomainCellProps {
+  x?: number; y?: number; width?: number; height?: number;
+  depth?: number; index?: number; name?: string;
+  categoryCount?: number; processCount?: number; activityCount?: number;
+  criticalActivityCount?: number; isOther?: boolean; metricLabel?: string;
+  nodeId?: string; drillLevel?: string;
+  [key: string]: unknown;
+}
+
+function TaxonomyDomainCell({
+  x = 0, y = 0, width = 0, height = 0, depth = 0, index = 0,
+  name = "", categoryCount = 0, processCount = 0, activityCount = 0,
+  criticalActivityCount = 0, isOther = false, metricLabel = "",
+  drillLevel = "domain",
+}: TaxonomyDomainCellProps) {
+  if (depth < 1 || width < 8 || height < 8) return null;
+  const fill = isOther ? "#8fa3b1" : (TAXONOMY_PALETTE[index % TAXONOMY_PALETTE.length] ?? "#006b6b");
+  const pad = 9;
+  const maxChars = Math.max(3, Math.floor((width - pad * 2) / 7));
+  const shortName = name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
+  const subLabel = drillLevel === "domain"
+    ? `${categoryCount} cat · ${activityCount} act`
+    : drillLevel === "category"
+      ? `${processCount} proc · ${activityCount} act`
+      : `${activityCount} activities`;
+  const critLabel = criticalActivityCount > 0 ? `${criticalActivityCount} critical` : null;
+  const fontSize = Math.min(13, Math.max(9, Math.floor(width / 10)));
+  return (
+    <g style={{ cursor: isOther ? "default" : "pointer" }}>
+      <rect x={x+1} y={y+1} width={Math.max(0,width-2)} height={Math.max(0,height-2)} rx={4} ry={4} fill={fill} stroke="#fff" strokeWidth={2} />
+      {width > 24 && height > 16 && (
+        <text x={x+pad} y={y+18} fill="#fff" fontSize={fontSize} fontWeight={700}>{shortName}</text>
+      )}
+      {width > 70 && height > 32 && (
+        <text x={x+pad} y={y+32} fill="rgba(255,255,255,0.88)" fontSize={Math.min(11,fontSize)} fontWeight={500}>{metricLabel}</text>
+      )}
+      {width > 100 && height > 46 && (
+        <text x={x+pad} y={y+46} fill="rgba(255,255,255,0.58)" fontSize={9}>{subLabel}</text>
+      )}
+      {critLabel && width > 80 && height > 60 && (
+        <>
+          <rect x={x+pad} y={y+52} width={Math.min(width-pad*2-4, critLabel.length*6+10)} height={12} rx={2} ry={2} fill="rgba(220,38,38,0.75)" />
+          <text x={x+pad+4} y={y+61} fill="#fff" fontSize={8.5} fontWeight={600}>{critLabel}</text>
+        </>
+      )}
+    </g>
+  );
+}
+
 function WorkCapabilityTaxonomyManager({
   dataset,
   orgRows,
@@ -2054,6 +2113,9 @@ function WorkCapabilityTaxonomyManager({
   const [mergeModalActivityIds, setMergeModalActivityIds] = useState<
     string[] | null
   >(null);
+  const [reviewHighlightIds, setReviewHighlightIds] = useState<string[] | null>(null);
+  const [treemapMetric, setTreemapMetric] = useState<'fte' | 'cost' | 'activities'>('fte');
+  const [treemapDrill, setTreemapDrill] = useState<TreemapDrill>({ level: "domain" });
 
   const activityLibrary = dataset.shared.activityLibrary;
   const activeActivities = activityLibrary.filter((row) =>
@@ -2098,6 +2160,48 @@ function WorkCapabilityTaxonomyManager({
     () => buildWorkCapabilityTaxonomyCleanupSuggestions({ dataset, portfolio }),
     [dataset, portfolio],
   );
+
+  const treemapData = useMemo(() => {
+    const fmtMetric = (fte: number, cost: number, act: number) =>
+      treemapMetric === "fte" ? `${fte.toFixed(1)} FTE` :
+      treemapMetric === "cost" ? fmtCost(cost) :
+      `${act} activities`;
+    const getSize = (fte: number, cost: number, act: number) =>
+      Math.max(0.01, treemapMetric === "fte" ? fte : treemapMetric === "cost" ? cost : act);
+    const sortAsc = (a: { totalFTE: number; totalCost: number; activityCount: number }, b: typeof a) =>
+      treemapMetric === "fte" ? b.totalFTE - a.totalFTE :
+      treemapMetric === "cost" ? b.totalCost - a.totalCost :
+      b.activityCount - a.activityCount;
+
+    let sourceNodes: typeof portfolio.tree = [];
+    let otherNodes: typeof portfolio.tree = [];
+
+    if (treemapDrill.level === "domain") {
+      const all = portfolio.tree.filter((n) => n.kind === "domain").sort(sortAsc);
+      sourceNodes = all.slice(0, 6);
+      otherNodes = all.slice(6);
+    } else if (treemapDrill.level === "category") {
+      sourceNodes = portfolio.tree
+        .filter((n) => n.kind === "category" && n.domain === treemapDrill.domainLabel)
+        .sort(sortAsc);
+    } else {
+      sourceNodes = portfolio.tree
+        .filter((n) => n.kind === "process" && n.domain === treemapDrill.domainLabel && n.category === treemapDrill.categoryLabel)
+        .sort(sortAsc);
+    }
+
+    const items = sourceNodes.map((n) => ({
+      name: n.label,
+      size: getSize(n.totalFTE, n.totalCost, n.activityCount),
+      totalFTE: n.totalFTE, totalCost: n.totalCost, activityCount: n.activityCount,
+      categoryCount: n.categoryCount, processCount: n.processCount,
+      criticalActivityCount: n.criticalActivityCount,
+      metricLabel: fmtMetric(n.totalFTE, n.totalCost, n.activityCount),
+      nodeId: n.id, isOther: false, drillLevel: treemapDrill.level,
+    }));
+
+    return { items, otherNodes };
+  }, [portfolio.tree, treemapMetric, treemapDrill]);
 
   const filteredActivities = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -2144,6 +2248,8 @@ function WorkCapabilityTaxonomyManager({
           ? activity.automationSaving > 0 &&
             activity.automationCostReductionPct >= 25
           : activity.automationSaving > 0);
+      const matchesReview =
+        !reviewHighlightIds || reviewHighlightIds.includes(activity.activityId);
       return (
         matchesTree &&
         matchesQuery &&
@@ -2152,7 +2258,8 @@ function WorkCapabilityTaxonomyManager({
         matchesNature &&
         matchesOwnership &&
         matchesSkillRisk &&
-        matchesAutomation
+        matchesAutomation &&
+        matchesReview
       );
     });
   }, [
@@ -2162,6 +2269,7 @@ function WorkCapabilityTaxonomyManager({
     natureFilter,
     ownershipGapOnly,
     portfolio.activities,
+    reviewHighlightIds,
     searchQuery,
     selectedTreeId,
     skillRiskFilter,
@@ -2306,6 +2414,7 @@ function WorkCapabilityTaxonomyManager({
     setSkillRiskFilter("");
     setAutomationFilter("");
     setSelectedTreeId("all");
+    setReviewHighlightIds(null);
   };
 
   return (
@@ -2330,17 +2439,6 @@ function WorkCapabilityTaxonomyManager({
           <button type="button" className={styles.workCapabilityImportBtn}>
             Catalog View
           </button>
-          <button
-            type="button"
-            className={
-              showExperimentalMap
-                ? styles.workCapabilityImportBtn
-                : styles.workCapabilitySecondaryBtn
-            }
-            onClick={() => setShowExperimentalMap((prev) => !prev)}
-          >
-            Experimental Map
-          </button>
         </div>
         <input
           value={searchQuery}
@@ -2348,78 +2446,83 @@ function WorkCapabilityTaxonomyManager({
           placeholder="Search activities"
           aria-label="Search taxonomy"
         />
-        <>
-          <select
-            value={departmentFilter}
-            onChange={(event) => setDepartmentFilter(event.target.value)}
-          >
-            <option value="">Department</option>
-            {portfolio.filterOptions.departments.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-          <select
-            value={criticalityFilter}
-            onChange={(event) => setCriticalityFilter(event.target.value)}
-          >
-            <option value="">Criticality</option>
-            {portfolio.filterOptions.criticalities.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-          <select
-            value={natureFilter}
-            onChange={(event) => setNatureFilter(event.target.value)}
-          >
-            <option value="">Nature</option>
-            {portfolio.filterOptions.natures.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-          <select
-            value={skillRiskFilter}
-            onChange={(event) => setSkillRiskFilter(event.target.value)}
-          >
-            <option value="">Skill risk</option>
-            {portfolio.filterOptions.skillRisks.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-          <select
-            value={automationFilter}
-            onChange={(event) => setAutomationFilter(event.target.value)}
-          >
-            <option value="">Automation</option>
-            <option value="any">Has saving</option>
-            <option value="high">High potential</option>
-          </select>
-          <button
-            type="button"
-            className={
-              ownershipGapOnly
-                ? styles.workCapabilityImportBtn
-                : styles.workCapabilitySecondaryBtn
-            }
-            onClick={() => setOwnershipGapOnly((prev) => !prev)}
-          >
-            Ownership Gap
-          </button>
-          <button
-            type="button"
-            className={styles.workCapabilitySecondaryBtn}
-            onClick={resetFilters}
-          >
-            Reset Filters
-          </button>
-        </>
+        <details className={styles.workCapabilityFiltersDetail}>
+          <summary className={styles.workCapabilitySecondaryBtn} style={{ listStyle: "none", cursor: "pointer" }}>
+            Filters ▾
+          </summary>
+          <div className={styles.workCapabilityFiltersDropdown}>
+            <select
+              value={departmentFilter}
+              onChange={(event) => setDepartmentFilter(event.target.value)}
+            >
+              <option value="">Department</option>
+              {portfolio.filterOptions.departments.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <select
+              value={criticalityFilter}
+              onChange={(event) => setCriticalityFilter(event.target.value)}
+            >
+              <option value="">Criticality</option>
+              {portfolio.filterOptions.criticalities.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <select
+              value={natureFilter}
+              onChange={(event) => setNatureFilter(event.target.value)}
+            >
+              <option value="">Nature</option>
+              {portfolio.filterOptions.natures.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <select
+              value={skillRiskFilter}
+              onChange={(event) => setSkillRiskFilter(event.target.value)}
+            >
+              <option value="">Skill risk</option>
+              {portfolio.filterOptions.skillRisks.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <select
+              value={automationFilter}
+              onChange={(event) => setAutomationFilter(event.target.value)}
+            >
+              <option value="">Automation</option>
+              <option value="any">Has saving</option>
+              <option value="high">High potential</option>
+            </select>
+            <button
+              type="button"
+              className={
+                ownershipGapOnly
+                  ? styles.workCapabilityImportBtn
+                  : styles.workCapabilitySecondaryBtn
+              }
+              onClick={() => setOwnershipGapOnly((prev) => !prev)}
+            >
+              Ownership Gap
+            </button>
+          </div>
+        </details>
+        <button
+          type="button"
+          className={styles.workCapabilitySecondaryBtn}
+          onClick={resetFilters}
+        >
+          Reset Filters
+        </button>
         <button
           type="button"
           className={
@@ -2466,6 +2569,246 @@ function WorkCapabilityTaxonomyManager({
             label="Automation Saving"
             value={fmtCost(portfolio.kpis.automationSaving)}
           />
+        </div>
+
+        <div className={styles.workCapabilitySnapshotLine}>
+          {portfolio.kpis.totalActivities.toLocaleString()} activities mapped to{" "}
+          <strong>{portfolio.kpis.mappedFTE.toFixed(1)} FTE</strong> and{" "}
+          <strong>{fmtCost(portfolio.kpis.mappedCost)}</strong> cost, with{" "}
+          <strong>{portfolio.kpis.ownershipGaps.toLocaleString()}</strong> ownership gap
+          {portfolio.kpis.ownershipGaps === 1 ? "" : "s"} requiring cleanup before
+          scenario planning.
+        </div>
+
+        <div className={styles.workCapabilityVisualRow}>
+          {/* Left: Work by Domain — larger card, top 8 + Other */}
+          <div className={styles.workCapabilityVisualCard}>
+            <strong>Work by Domain</strong>
+            {(() => {
+              const allDomains = portfolio.tree
+                .filter((n) => n.kind === "domain")
+                .sort((a, b) => b.totalCost - a.totalCost || b.totalFTE - a.totalFTE);
+              const top = allDomains.slice(0, 8);
+              const rest = allDomains.slice(8);
+              const otherCost = rest.reduce((s, n) => s + n.totalCost, 0);
+              const maxCost = Math.max(1, top[0]?.totalCost ?? 0, otherCost);
+              return (
+                <>
+                  {top.map((n) => (
+                    <div key={n.id} className={styles.workCapabilityVisualBar}>
+                      <span className={styles.workCapabilityVisualBarLabel}>{n.label}</span>
+                      <div className={styles.workCapabilityVisualBarTrack}>
+                        <div className={styles.workCapabilityVisualBarFill} style={{ width: `${Math.max(4, (n.totalCost / maxCost) * 100)}%` }} />
+                      </div>
+                      <span className={styles.workCapabilityVisualBarValue}>{fmtCost(n.totalCost)}</span>
+                    </div>
+                  ))}
+                  {rest.length > 0 && (
+                    <div className={styles.workCapabilityVisualBar}>
+                      <span className={styles.workCapabilityVisualBarLabel}>Other ({rest.length})</span>
+                      <div className={styles.workCapabilityVisualBarTrack}>
+                        <div className={styles.workCapabilityVisualBarFill} style={{ width: `${Math.max(4, (otherCost / maxCost) * 100)}%`, opacity: 0.45 }} />
+                      </div>
+                      <span className={styles.workCapabilityVisualBarValue}>{fmtCost(otherCost)}</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Right: stacked Quality Mix + Automation Opportunity */}
+          <div className={styles.workCapabilityVisualRightStack}>
+            <div className={styles.workCapabilityVisualCard}>
+              <strong>Quality Mix</strong>
+              {(() => {
+                const total = Math.max(1, portfolio.kpis.totalActivities);
+                const critPct = (portfolio.kpis.criticalActivities / total) * 100;
+                const gapPct = (portfolio.kpis.ownershipGaps / total) * 100;
+                return (
+                  <div className={styles.workCapabilityQualityStats}>
+                    <div>
+                      <span className={styles.workCapabilityQualityNum} style={{ color: "#dc2626" }}>
+                        {portfolio.kpis.criticalActivities}
+                      </span>
+                      <span className={styles.workCapabilityQualityLabel}>
+                        critical <span>({critPct.toFixed(0)}%)</span>
+                      </span>
+                    </div>
+                    <div>
+                      <span className={styles.workCapabilityQualityNum} style={{ color: "#d97706" }}>
+                        {portfolio.kpis.ownershipGaps}
+                      </span>
+                      <span className={styles.workCapabilityQualityLabel}>
+                        ownership gaps <span>({gapPct.toFixed(0)}%)</span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className={styles.workCapabilityVisualCard}>
+              <strong>Automation Opportunity</strong>
+              {(() => {
+                const cost = portfolio.kpis.mappedCost;
+                const saving = portfolio.kpis.automationSaving;
+                const pct = cost > 0 ? Math.min(100, (saving / cost) * 100) : 0;
+                return (
+                  <>
+                    <div className={styles.workCapabilityAutoSavingBig}>{fmtCost(saving)}</div>
+                    <div className={styles.workCapabilityAutoSavingSub}>
+                      {pct.toFixed(0)}% of {fmtCost(cost)} mapped cost
+                    </div>
+                    <div className={styles.workCapabilityVisualBarTrack}>
+                      <div className={styles.workCapabilityVisualBarFillAmber} style={{ width: `${Math.max(4, pct)}%` }} />
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+
+        {/* Taxonomy concentration treemap */}
+        <div className={styles.workCapabilityTreemapSection}>
+          <div className={styles.workCapabilityTreemapHeader}>
+            <div>
+              <span className={styles.workCapabilityTreemapTitle}>
+                {treemapDrill.level === "domain"
+                  ? "Work is concentrated in a few taxonomy domains"
+                  : treemapDrill.level === "category"
+                    ? `Categories within ${treemapDrill.domainLabel}`
+                    : `Processes within ${treemapDrill.categoryLabel}`}
+              </span>
+              <span className={styles.workCapabilityTreemapSub}>
+                {treemapDrill.level === "domain"
+                  ? "Click a domain to explore its categories."
+                  : treemapDrill.level === "category"
+                    ? "Click a category to explore its processes."
+                    : "Click a process to filter the catalog below."}
+              </span>
+            </div>
+            <div className={styles.workCapabilityTreemapToggleGroup}>
+              {(["fte", "cost", "activities"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={
+                    treemapMetric === m
+                      ? styles.workCapabilityTreemapToggleActive
+                      : styles.workCapabilityTreemapToggle
+                  }
+                  onClick={() => setTreemapMetric(m)}
+                >
+                  {m === "fte" ? "FTE" : m === "cost" ? "Cost" : "Activities"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {treemapDrill.level !== "domain" && (
+            <div className={styles.workCapabilityTreemapBreadcrumbs}>
+              <button
+                type="button"
+                className={styles.workCapabilityTreemapBreadcrumbBtn}
+                onClick={() => { setTreemapDrill({ level: "domain" }); setSelectedTreeId("all"); }}
+              >
+                All Domains
+              </button>
+              <span className={styles.workCapabilityTreemapBreadcrumbSep}>›</span>
+              {treemapDrill.level === "category" && (
+                <span className={styles.workCapabilityTreemapBreadcrumbCurrent}>{treemapDrill.domainLabel}</span>
+              )}
+              {treemapDrill.level === "process" && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.workCapabilityTreemapBreadcrumbBtn}
+                    onClick={() => {
+                      setTreemapDrill({ level: "category", domainId: treemapDrill.domainId, domainLabel: treemapDrill.domainLabel });
+                      setSelectedTreeId(treemapDrill.domainId);
+                    }}
+                  >
+                    {treemapDrill.domainLabel}
+                  </button>
+                  <span className={styles.workCapabilityTreemapBreadcrumbSep}>›</span>
+                  <span className={styles.workCapabilityTreemapBreadcrumbCurrent}>{treemapDrill.categoryLabel}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          <ResponsiveContainer width="100%" height={300}>
+            <Treemap
+              data={treemapData.items}
+              dataKey="size"
+              stroke="#fff"
+              fill="#006b6b"
+              isAnimationActive={false}
+              content={(props: TaxonomyDomainCellProps) => (
+                <TaxonomyDomainCell {...props} />
+              )}
+              onClick={(data: Record<string, unknown>) => {
+                if (!data?.nodeId || data.isOther) return;
+                const nodeId = data.nodeId as string;
+                const nodeName = data.name as string;
+                if (treemapDrill.level === "domain") {
+                  setTreemapDrill({ level: "category", domainId: nodeId, domainLabel: nodeName });
+                  setSelectedTreeId(nodeId);
+                } else if (treemapDrill.level === "category") {
+                  setTreemapDrill({
+                    level: "process",
+                    domainId: treemapDrill.domainId,
+                    domainLabel: treemapDrill.domainLabel,
+                    categoryId: nodeId,
+                    categoryLabel: nodeName,
+                  });
+                  setSelectedTreeId(nodeId);
+                } else {
+                  setSelectedTreeId(selectedTreeId === nodeId ? treemapDrill.domainId : nodeId);
+                }
+              }}
+            />
+          </ResponsiveContainer>
+
+          {treemapDrill.level === "domain" && treemapData.otherNodes.length > 0 && (
+            <div className={styles.workCapabilityTreemapOtherList}>
+              <span className={styles.workCapabilityTreemapOtherLabel}>
+                {treemapData.otherNodes.length} more:
+              </span>
+              {treemapData.otherNodes.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  className={styles.workCapabilityTreemapOtherItem}
+                  onClick={() => {
+                    setTreemapDrill({ level: "category", domainId: n.id, domainLabel: n.label });
+                    setSelectedTreeId(n.id);
+                  }}
+                >
+                  {n.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {selectedTreeId !== "all" &&
+            portfolio.tree.find((n) => n.id === selectedTreeId) != null && (
+              <div className={styles.workCapabilityTreemapActiveHint}>
+                Catalog filtered to:{" "}
+                <strong>
+                  {portfolio.tree.find((n) => n.id === selectedTreeId)!.label}
+                </strong>{" "}
+                —{" "}
+                <button
+                  type="button"
+                  onClick={() => setSelectedTreeId("all")}
+                >
+                  clear filter
+                </button>
+              </div>
+            )}
         </div>
 
         <div className={styles.workCapabilityCatalogWorkspace}>
@@ -2567,6 +2910,14 @@ function WorkCapabilityTaxonomyManager({
           </aside>
 
           <div className={styles.workCapabilityActivityTableWrap}>
+            {reviewHighlightIds && (
+              <div className={styles.workCapabilityReviewBanner}>
+                <span>Showing {reviewHighlightIds.length} flagged activities from catalog suggestion</span>
+                <button type="button" onClick={() => setReviewHighlightIds(null)}>
+                  Clear
+                </button>
+              </div>
+            )}
             {selectedActivityIds.length > 0 && (
               <div className={styles.workCapabilityBulkActionBar}>
                 <strong>
@@ -2731,6 +3082,7 @@ function WorkCapabilityTaxonomyManager({
                 processOptions={processOptions}
                 categoryOptions={categoryOptions}
                 allActivities={portfolio.activities}
+                selectedActivityIds={selectedActivityIds}
                 onArchive={(activityIds) =>
                   setArchiveModalActivityIds(activityIds)
                 }
@@ -2745,6 +3097,7 @@ function WorkCapabilityTaxonomyManager({
       <WorkCapabilityTaxonomyCleanupPanel
         suggestions={cleanupSuggestions}
         onReview={(activityIds) => {
+          setReviewHighlightIds(activityIds);
           const firstActivityId = activityIds[0];
           if (firstActivityId) setSelectedActivityId(firstActivityId);
         }}
@@ -3066,6 +3419,7 @@ function WorkCapabilityActivityDetailPanel({
   processOptions,
   categoryOptions,
   allActivities,
+  selectedActivityIds,
   onArchive,
   onMerge,
   onMutate,
@@ -3075,6 +3429,7 @@ function WorkCapabilityActivityDetailPanel({
   processOptions: string[];
   categoryOptions: string[];
   allActivities: WorkCapabilityActivityMetric[];
+  selectedActivityIds: string[];
   onArchive: (activityIds: string[]) => void;
   onMerge: (activityIds: string[]) => void;
   onMutate: (mutation: TaxonomyMutation, nextSelection?: string) => void;
@@ -3271,8 +3626,15 @@ function WorkCapabilityActivityDetailPanel({
           {skillRequirementCount.toLocaleString()} skill requirement
           {skillRequirementCount === 1 ? "" : "s"} linked to this activity.
         </span>
-        <button type="button" onClick={() => onMerge([activity.activityId])}>
-          Merge Activities
+        <button
+          type="button"
+          onClick={() => onMerge(selectedActivityIds.length >= 2 ? selectedActivityIds : [activity.activityId])}
+          disabled={selectedActivityIds.length < 2}
+          title={selectedActivityIds.length < 2 ? "Select 2 or more activities using checkboxes to merge" : undefined}
+        >
+          {selectedActivityIds.length >= 2
+            ? `Merge ${selectedActivityIds.length} selected`
+            : "Merge (select 2+ first)"}
         </button>
         <button type="button" onClick={() => onArchive([activity.activityId])}>
           Archive Activity

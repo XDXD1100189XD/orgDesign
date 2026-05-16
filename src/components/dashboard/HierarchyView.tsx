@@ -38,6 +38,10 @@ import {
 import { getPositionPath, searchHierarchyPositions } from "./hierarchySearch";
 import OrgNode from "./OrgNode";
 import styles from "./HierarchyView.module.css";
+import dynamic from "next/dynamic";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Plot = dynamic(() => import("react-plotly.js"), { ssr: false }) as React.ComponentType<any>;
 
 const nodeTypes = { org: OrgNode };
 interface Props {
@@ -61,7 +65,6 @@ interface Props {
 const NODE_W = 200;
 const GAP_X = 40;
 const GAP_Y = 140;
-const LAYER_LIMIT = 3;
 
 function getOrphans(
   V: Record<string, NormalizedVertex>,
@@ -130,6 +133,10 @@ function buildGraph(
   selectedNodeIds: Set<string>,
   activeSearchResultId: string | null,
   highlightedPathIds: Set<string>,
+  layerLimit: number,
+  filterField: string | null,
+  filterColorMap: Record<string, string>,
+  visibleFields: Set<string>,
 ): { nodes: Node[]; edges: Edge[] } {
   const { vertices: V, metrics: m } = data;
   const out: { nodes: Node[]; edges: Edge[] } = { nodes: [], edges: [] };
@@ -137,7 +144,7 @@ function buildGraph(
 
   const w: Record<string, number> = {};
   function cw(id: string, layer: number): number {
-    if (localCollapsed.has(id) || layer >= LAYER_LIMIT - 1) {
+    if (localCollapsed.has(id) || layer >= layerLimit - 1) {
       w[id] = NODE_W;
       return NODE_W;
     }
@@ -154,10 +161,14 @@ function buildGraph(
     if (!v) return;
     const allKids = m.children[id] || [];
     const isCol = localCollapsed.has(id);
-    const isBoundary = layer >= LAYER_LIMIT - 1 && allKids.length > 0;
+    const isBoundary = layer >= layerLimit - 1 && allKids.length > 0;
     const visibleKids = (isBoundary || isCol) ? [] : allKids;
     const pathIndex = [...highlightedPathIds].indexOf(id);
     const isPathBoundary = isBoundary && pathIndex >= 0 && allKids.some((kid) => highlightedPathIds.has(kid));
+
+    const filterColor = filterField
+      ? (filterColorMap[getVertexFieldValue(v, filterField)] ?? null)
+      : null;
 
     out.nodes.push({
       id,
@@ -183,6 +194,9 @@ function buildGraph(
         isPathHighlighted: highlightedPathIds.has(id),
         isPathBoundary,
         subtreeCount: m.subtree_count[id] ?? 0,
+        filterColor,
+        dept: v.dept ?? null,
+        visibleFields: [...visibleFields],
         onToggleCollapse: onToggle,
         onDrillDown,
         collapsed: isCol,
@@ -249,6 +263,9 @@ function buildGraph(
             isSearchTarget: activeSearchResultId === id,
             isPathHighlighted: highlightedPathIds.has(id),
             isPathBoundary: false,
+            filterColor: filterField ? (filterColorMap[getVertexFieldValue(v, filterField)] ?? null) : null,
+            dept: v.dept ?? null,
+            visibleFields: [...visibleFields],
             onToggleCollapse: onToggle,
             onDrillDown,
             collapsed: false,
@@ -1053,6 +1070,95 @@ function MultiTransferModal({
   );
 }
 
+const SUNBURST_COLORS = ["#006b6b","#8a9a2f","#c45c13","#3a4148","#6366f1","#d97706","#be185d"];
+
+function getVertexFieldValue(v: NormalizedVertex, field: string): string {
+  if (field === "dept") return v.dept || "";
+  if (field === "grade") return v.grade || "";
+  if (field === "geo") return v.geo || "";
+  if (field === "role") return v.role || "";
+  return v.extra?.[field] || "";
+}
+
+const FILTER_PALETTE = [
+  "#006b6b","#8a9a2f","#c45c13","#6366f1",
+  "#d97706","#be185d","#0891b2","#7c3aed",
+  "#059669","#dc2626","#78716c","#0284c7",
+];
+
+function PlotlySunburstChart({
+  data,
+  viewRoot,
+  layerLimit,
+  filterField,
+  filterColorMap,
+}: {
+  data: DashboardData;
+  viewRoot: string;
+  layerLimit: number;
+  filterField?: string | null;
+  filterColorMap?: Record<string, string>;
+}) {
+  const plotData = useMemo(() => {
+    const ids: string[] = [];
+    const labels: string[] = [];
+    const parents: string[] = [];
+    const values: number[] = [];
+    const customdata: string[] = [];
+    const colors: string[] = [];
+
+    function walk(id: string, parentId: string, depth: number) {
+      const v = data.vertices[id];
+      if (!v || depth > layerLimit) return;
+      const kids = data.metrics.children[id] || [];
+      const hasVisibleKids = depth < layerLimit && kids.length > 0;
+      ids.push(id);
+      labels.push(v.display_name || id);
+      parents.push(parentId);
+      customdata.push(`${v.role || ""}${v.open_role ? " · Open" : ""}`);
+      values.push(1);
+      if (filterField && filterColorMap && Object.keys(filterColorMap).length > 0) {
+        const val = getVertexFieldValue(v, filterField);
+        colors.push(filterColorMap[val] || "#adb5bd");
+      } else {
+        colors.push(SUNBURST_COLORS[Math.min(depth, SUNBURST_COLORS.length - 1)]);
+      }
+      if (hasVisibleKids) {
+        for (const kid of kids) walk(kid, id, depth + 1);
+      }
+    }
+
+    if (viewRoot && data.vertices[viewRoot]) walk(viewRoot, "", 0);
+
+    return [{
+      type: "sunburst",
+      ids,
+      labels,
+      parents,
+      values,
+      customdata,
+      branchvalues: "remainder" as const,
+      hovertemplate: "<b>%{label}</b><br>%{customdata}<extra></extra>",
+      marker: { colors },
+      maxdepth: layerLimit + 1,
+      textfont: { family: "'IBM Plex Mono', monospace", size: 11 },
+    }];
+  }, [data, viewRoot, layerLimit, filterField, filterColorMap]);
+
+  return (
+    <Plot
+      data={plotData}
+      layout={{
+        margin: { t: 10, l: 10, r: 10, b: 10 },
+        paper_bgcolor: "transparent",
+        font: { family: "'IBM Plex Mono', monospace", size: 11 },
+      }}
+      config={{ displayModeBar: false, responsive: true }}
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
+}
+
 function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey }: Props) {
   const { vertices: V, metrics: m, edges: dataEdges } = data;
   const rf = useReactFlow();
@@ -1066,7 +1172,14 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
     [onDataChange],
   );
 
-  // ── View navigation (3-layer windowed view) ──
+  const [layerLimit, setLayerLimit] = useState(3);
+  const [viewMode, setViewMode] = useState<"tree" | "sunburst">("tree");
+  const [filterField, setFilterField] = useState<string | null>(null);
+  const [visibleFields, setVisibleFields] = useState<Set<string>>(
+    () => new Set(['role', 'empId', 'grade', 'geo'])
+  );
+
+  // ── View navigation ──
   const [viewRoot, setViewRoot] = useState<string>(m.basic.roots[0] || "");
   const [viewHistory, setViewHistory] = useState<string[]>([]);
   const [localCollapsed, setLocalCollapsed] = useState<Set<string>>(new Set());
@@ -1137,6 +1250,75 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
     [data, searchQuery],
   );
 
+  const filterableFields = useMemo(() => {
+    const fields: { field: string; label: string }[] = [];
+    const coreOptions = [
+      { field: "dept", label: "Department" },
+      { field: "grade", label: "Grade" },
+      { field: "geo", label: "Location" },
+    ];
+    for (const opt of coreOptions) {
+      if (Object.values(V).some((v) => !!getVertexFieldValue(v, opt.field))) {
+        fields.push(opt);
+      }
+    }
+    const extraKeys = new Set<string>();
+    Object.values(V).forEach((v) => {
+      if (v.extra) Object.keys(v.extra).forEach((k) => extraKeys.add(k));
+    });
+    [...extraKeys].sort().forEach((k) => fields.push({ field: k, label: k }));
+    return fields;
+  }, [V]);
+
+  const filterColorMap = useMemo<Record<string, string>>(() => {
+    if (!filterField) return {};
+    const vals = new Set<string>();
+    Object.values(V).forEach((v) => {
+      const val = getVertexFieldValue(v, filterField);
+      if (val) vals.add(val);
+    });
+    const map: Record<string, string> = {};
+    [...vals].sort().forEach((val, i) => {
+      map[val] = FILTER_PALETTE[i % FILTER_PALETTE.length];
+    });
+    return map;
+  }, [filterField, V]);
+
+  const availableNodeFields = useMemo<{ field: string; label: string }[]>(() => {
+    const core = [
+      { field: "empId",  label: "Employee ID" },
+      { field: "role",   label: "Job Title" },
+      { field: "grade",  label: "Grade" },
+      { field: "geo",    label: "Location" },
+      { field: "dept",   label: "Department" },
+    ];
+    const extraKeys = new Set<string>();
+    Object.values(V).forEach((v) => {
+      if (v.extra) Object.keys(v.extra).forEach((k) => extraKeys.add(k));
+    });
+    return [
+      ...core.filter(({ field }) => {
+        if (field === "role") return true;
+        return Object.values(V).some((v) => {
+          if (field === "empId")  return !!v.id;
+          if (field === "grade")  return !!v.grade;
+          if (field === "geo")    return !!v.geo;
+          if (field === "dept")   return !!v.dept;
+          return false;
+        });
+      }),
+      ...[...extraKeys].sort().map((k) => ({ field: k, label: k })),
+    ];
+  }, [V]);
+
+  const toggleNodeField = useCallback((field: string) => {
+    setVisibleFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(field)) next.delete(field); else next.add(field);
+      return next;
+    });
+  }, []);
+
   const selectSearchResult = useCallback((id: string) => {
     const path = getPositionPath(data, id);
     setSelectedNodeId(id);
@@ -1182,9 +1364,13 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
       selectedNodeIds,
       activeSearchResultId,
       highlightedPathIds,
+      layerLimit,
+      filterField,
+      filterColorMap,
+      visibleFields,
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, viewRoot, localCollapsed, onToggle, handleDrillDown, selectedNodeIds, activeSearchResultId, highlightedPathIds],
+    [data, viewRoot, localCollapsed, onToggle, handleDrillDown, selectedNodeIds, activeSearchResultId, highlightedPathIds, layerLimit, filterField, filterColorMap, visibleFields],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
@@ -1519,14 +1705,72 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
               {orphans.length} unassigned
             </span>
           )}
+          <div className={styles.layerSelector}>
+            <span className={styles.layerLabel}>Layers</span>
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <button
+                key={n}
+                className={`${styles.layerBtn} ${layerLimit === n ? styles.layerBtnActive : ""}`}
+                onClick={() => setLayerLimit(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className={styles.viewToggle}>
+            <button
+              className={`${styles.viewToggleBtn} ${viewMode === "tree" ? styles.viewToggleBtnActive : ""}`}
+              onClick={() => setViewMode("tree")}
+            >
+              Tree
+            </button>
+            <button
+              className={`${styles.viewToggleBtn} ${viewMode === "sunburst" ? styles.viewToggleBtnActive : ""}`}
+              onClick={() => setViewMode("sunburst")}
+            >
+              Sunburst
+            </button>
+          </div>
+          <div className={styles.filterSelector}>
+            <span className={styles.layerLabel}>Filter</span>
+            <select
+              className={styles.filterSelect}
+              value={filterField || ""}
+              onChange={(e) => setFilterField(e.target.value || null)}
+            >
+              <option value="">None</option>
+              {filterableFields.map(({ field, label }) => (
+                <option key={field} value={field}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <details className={styles.fieldsSelector}>
+            <summary className={styles.fitBtn} style={{ listStyle: "none", cursor: "pointer" }}>
+              Fields ({visibleFields.size})
+            </summary>
+            <div className={styles.fieldsPopover}>
+              {availableNodeFields.map(({ field, label }) => (
+                <label key={field} className={styles.fieldsOption}>
+                  <input
+                    type="checkbox"
+                    checked={visibleFields.has(field)}
+                    onChange={() => toggleNodeField(field)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </details>
           <button
             className={styles.fitBtn}
+            disabled={viewMode !== "tree"}
             onClick={() => rf.fitView({ padding: 0.3, duration: 400 })}
           >
             ⌖ Fit
           </button>
           <button
             className={styles.fitBtn}
+            disabled={viewMode !== "tree"}
             onClick={() => setLocalCollapsed(new Set())}
           >
             ↕ Expand
@@ -1536,7 +1780,26 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
 
       {rowSyncError && <div className={styles.inlineError}>{rowSyncError}</div>}
 
-      <div className={styles.workbench}>
+      {filterField && Object.keys(filterColorMap).length > 0 && (
+        <div className={styles.filterLegend}>
+          <span className={styles.filterLegendLabel}>
+            {filterableFields.find((f) => f.field === filterField)?.label || filterField}
+          </span>
+          {Object.entries(filterColorMap).map(([val, color]) => (
+            <span key={val} className={styles.filterLegendItem}>
+              <span className={styles.filterLegendDot} style={{ background: color }} />
+              {val}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {viewMode === "sunburst" && (
+        <div className={styles.flowWrap}>
+          <PlotlySunburstChart data={data} viewRoot={viewRoot} layerLimit={layerLimit} filterField={filterField} filterColorMap={filterColorMap} />
+        </div>
+      )}
+      <div className={styles.workbench} style={{ display: viewMode === "sunburst" ? "none" : "grid" }}>
         <div className={styles.flowWrap}>
           <ReactFlow
             nodes={nodes}

@@ -116,6 +116,7 @@ export interface NormalizedVertex {
   dept: string | null;
   open_role: boolean;
   geo?: string | null;
+  extra?: Record<string, string>;
   transition?: CompTransition | null;
 }
 
@@ -236,6 +237,9 @@ export interface OrgNodeData {
   isSearchTarget?: boolean;
   isPathHighlighted?: boolean;
   isPathBoundary?: boolean;
+  dept?: string | null;
+  visibleFields?: string[];
+  filterColor?: string | null;
 }
 
 // ========================================================

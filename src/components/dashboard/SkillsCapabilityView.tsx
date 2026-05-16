@@ -20,24 +20,13 @@ interface SkillsCapabilityViewProps {
   columnMapping: ColumnMapping | null;
 }
 
-type TabType =
-  | "overview"
-  | "gap-heatmap"
-  | "role-readiness"
-  | "activity-risk"
-  | "skill-coverage";
-
 type HeatmapView = "department-family" | "role-skill" | "employee-skill";
 
-const tabs: Array<{ id: TabType; label: string }> = [
-  { id: "overview", label: "Overview" },
-  { id: "gap-heatmap", label: "Skill Gap Heatmap" },
-  { id: "role-readiness", label: "Role Readiness" },
-  { id: "activity-risk", label: "Activity-Skill Risk" },
-  { id: "skill-coverage", label: "Skill Coverage" },
+const HEATMAP_MODES: Array<{ id: HeatmapView; label: string }> = [
+  { id: "department-family", label: "Department Gap Concentration" },
+  { id: "role-skill", label: "Top Role Gaps" },
+  { id: "employee-skill", label: "Top Employee Gaps" },
 ];
-
-const ROLE_READINESS_TABLE_LIMIT = 100;
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -52,26 +41,16 @@ function pct(value: number) {
 }
 
 function money(value: number) {
-  return value.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  });
+  return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 function riskClass(
   value: ActivitySkillRisk | RoleReadinessStatus | "High" | "Medium" | "Low",
 ) {
-  if (value === "High" || value === "High capability risk") {
-    return styles.badgeRed;
-  }
-  if (value === "Medium" || value === "Development needed") {
-    return styles.badgeOrange;
-  }
-  if (value === "Minor gaps") {
-    return styles.badgeAmber;
-  }
-  if (value === "Ready" || value === "Low") {
-    return styles.badgeGreen;
-  }
+  if (value === "High" || value === "High capability risk") return styles.badgeRed;
+  if (value === "Medium" || value === "Development needed") return styles.badgeOrange;
+  if (value === "Minor gaps") return styles.badgeAmber;
+  if (value === "Ready" || value === "Low") return styles.badgeGreen;
   return styles.badgeNeutral;
 }
 
@@ -82,6 +61,12 @@ function heatClass(value: number) {
   return styles.heatNone;
 }
 
+function truncateSkills(skills: string[], max = 3): string {
+  if (skills.length === 0) return "—";
+  if (skills.length <= max) return skills.join(", ");
+  return `${skills.slice(0, max).join(", ")} +${skills.length - max} more`;
+}
+
 export default function SkillsCapabilityView({
   dataset,
   orgRows,
@@ -89,18 +74,8 @@ export default function SkillsCapabilityView({
   columnMapping,
 }: SkillsCapabilityViewProps) {
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [heatmapView, setHeatmapView] =
-    useState<HeatmapView>("department-family");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [heatmapView, setHeatmapView] = useState<HeatmapView>("department-family");
   const [selectedRoleKey, setSelectedRoleKey] = useState<string | null>(null);
-  const [selectedFilters, setSelectedFilters] = useState({
-    department: "",
-    skillFamily: "",
-    criticality: "",
-    riskStatus: "",
-    skillRisk: "",
-  });
 
   useEffect(() => {
     setMounted(true);
@@ -121,82 +96,22 @@ export default function SkillsCapabilityView({
     }
   }, [dataset, orgRows, orgEmployeeIdColumn, columnMapping]);
 
-  const filteredRoles = useMemo(() => {
-    if (!portfolio) return [];
-
-    const query = searchTerm.trim().toLowerCase();
-    return portfolio.roles.filter((role) => {
-      const matchesSearch =
-        !query ||
-        role.employeeName.toLowerCase().includes(query) ||
-        role.role.toLowerCase().includes(query) ||
-        role.department.toLowerCase().includes(query);
-      const matchesDepartment =
-        !selectedFilters.department ||
-        role.department === selectedFilters.department;
-      const matchesRiskStatus =
-        !selectedFilters.riskStatus ||
-        role.riskStatus === selectedFilters.riskStatus;
-      return matchesSearch && matchesDepartment && matchesRiskStatus;
-    });
-  }, [portfolio, searchTerm, selectedFilters]);
-
-  const filteredActivities = useMemo(() => {
-    if (!portfolio) return [];
-
-    const query = searchTerm.trim().toLowerCase();
-    return portfolio.activities.filter((activity) => {
-      const matchesSearch =
-        !query || activity.activityName.toLowerCase().includes(query);
-      const matchesCriticality =
-        !selectedFilters.criticality ||
-        activity.criticality === selectedFilters.criticality;
-      const matchesSkillRisk =
-        !selectedFilters.skillRisk ||
-        activity.skillRisk === selectedFilters.skillRisk;
-      return matchesSearch && matchesCriticality && matchesSkillRisk;
-    });
-  }, [portfolio, searchTerm, selectedFilters]);
-
-  const filteredSkills = useMemo(() => {
-    if (!portfolio) return [];
-
-    const query = searchTerm.trim().toLowerCase();
-    return portfolio.skills.filter((skill) => {
-      const matchesSearch =
-        !query ||
-        skill.skillName.toLowerCase().includes(query) ||
-        skill.skillFamily.toLowerCase().includes(query);
-      const matchesSkillFamily =
-        !selectedFilters.skillFamily ||
-        skill.skillFamily === selectedFilters.skillFamily;
-      const matchesCriticality =
-        !selectedFilters.criticality ||
-        skill.criticality === selectedFilters.criticality;
-      return matchesSearch && matchesSkillFamily && matchesCriticality;
-    });
-  }, [portfolio, searchTerm, selectedFilters]);
+  const filteredRoles = useMemo(() => portfolio?.roles ?? [], [portfolio]);
+  const filteredActivities = useMemo(() => portfolio?.activities ?? [], [portfolio]);
+  const filteredSkills = useMemo(() => portfolio?.skills ?? [], [portfolio]);
 
   const selectedRole = useMemo(() => {
     if (!portfolio || !selectedRoleKey) return null;
-    return portfolio.roles.find(
-      (role) => roleReadinessRowKey(role) === selectedRoleKey,
-    );
+    return portfolio.roles.find((role) => roleReadinessRowKey(role) === selectedRoleKey);
   }, [portfolio, selectedRoleKey]);
 
-  if (!mounted) {
-    return <CenterState message="Loading Skills & Capability data..." />;
-  }
+  if (!mounted) return <CenterState message="Loading Skills & Capability data..." />;
 
   if (!portfolio) {
     return (
       <CenterState message="Unable to load Skills & Capability data. Please check your dataset." />
     );
   }
-
-  const updateFilter = (key: keyof typeof selectedFilters, value: string) => {
-    setSelectedFilters((prev) => ({ ...prev, [key]: value }));
-  };
 
   return (
     <div className={styles.wrap}>
@@ -205,44 +120,11 @@ export default function SkillsCapabilityView({
           <div className={styles.eyebrow}>Work & Capability Analysis</div>
           <h2 className={styles.title}>Skills & Capability</h2>
           <p className={styles.subtitle}>
-            Deterministic readiness, skill gap, activity coverage, and
-            single-point capability risk from uploaded work datasets.
+            Identify skill gaps, role readiness risk, activity coverage gaps, and single-point
+            capability dependencies.
           </p>
         </div>
         <div className={styles.controls}>
-          <input
-            className={styles.input}
-            type="search"
-            placeholder="Search roles, skills, activities..."
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-          />
-          <select
-            className={styles.select}
-            value={selectedFilters.department}
-            onChange={(event) => updateFilter("department", event.target.value)}
-          >
-            <option value="">All departments</option>
-            {portfolio.filterOptions.departments.map((department) => (
-              <option key={department} value={department}>
-                {department || "No department"}
-              </option>
-            ))}
-          </select>
-          <select
-            className={styles.select}
-            value={selectedFilters.skillFamily}
-            onChange={(event) =>
-              updateFilter("skillFamily", event.target.value)
-            }
-          >
-            <option value="">All skill families</option>
-            {portfolio.filterOptions.skillFamilies.map((family) => (
-              <option key={family} value={family}>
-                {family || "No family"}
-              </option>
-            ))}
-          </select>
           <button className={styles.secondaryButton} type="button">
             Export
           </button>
@@ -251,53 +133,31 @@ export default function SkillsCapabilityView({
 
       <KpiStrip portfolio={portfolio} />
 
-      <section className={styles.panel}>
-        <nav className={styles.tabs} aria-label="Skills capability views">
-          {tabs.map((tab) => (
-            <button
-              className={cx(
-                styles.tab,
-                activeTab === tab.id && styles.tabActive,
-              )}
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-        <div className={styles.panelBody}>
-          {activeTab === "overview" && (
-            <OverviewTab portfolio={portfolio} activities={filteredActivities} />
-          )}
-          {activeTab === "gap-heatmap" && (
-            <GapHeatmapTab
-              portfolio={portfolio}
-              heatmapView={heatmapView}
-              onHeatmapViewChange={setHeatmapView}
-            />
-          )}
-          {activeTab === "role-readiness" && (
-            <RoleReadinessTab
-              roles={filteredRoles}
-              onSelectRole={setSelectedRoleKey}
-            />
-          )}
-          {activeTab === "activity-risk" && (
-            <ActivityRiskTab activities={filteredActivities} />
-          )}
-          {activeTab === "skill-coverage" && (
-            <SkillCoverageTab skills={filteredSkills} />
-          )}
-        </div>
-      </section>
+      <CapabilityHealthSection portfolio={portfolio} />
+
+      <GapHeatmapSection
+        portfolio={portfolio}
+        heatmapView={heatmapView}
+        onHeatmapViewChange={setHeatmapView}
+      />
+
+      <TopCapabilityRisksSection portfolio={portfolio} activities={filteredActivities} />
+
+      <RoleReadinessDrilldown
+        roles={filteredRoles}
+        onSelectRole={setSelectedRoleKey}
+        filterOptions={portfolio.filterOptions}
+      />
+
+      <ActivityRiskDrilldown activities={filteredActivities} />
+
+      <SkillCoverageDrilldown
+        skills={filteredSkills}
+        filterOptions={portfolio.filterOptions}
+      />
 
       {selectedRole && (
-        <RoleDetailDrawer
-          role={selectedRole}
-          onClose={() => setSelectedRoleKey(null)}
-        />
+        <RoleDetailDrawer role={selectedRole} onClose={() => setSelectedRoleKey(null)} />
       )}
     </div>
   );
@@ -314,229 +174,162 @@ function CenterState({ message }: { message: string }) {
 
 function KpiStrip({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
   const kpis = [
-    ["Critical skills", portfolio.kpis.criticalSkills, styles.metricBlue],
-    ["Major skill gaps", portfolio.kpis.majorSkillGaps, styles.metricRed],
-    ["Avg readiness", pct(portfolio.kpis.averageReadiness), styles.metricGreen],
-    [
-      "Roles below 70%",
-      portfolio.kpis.rolesBelow70PctReadiness,
-      styles.metricOrange,
-    ],
-    [
-      "Activities at risk",
-      portfolio.kpis.activitiesAtSkillRisk,
-      styles.metricPurple,
-    ],
-    [
-      "Single-point skills",
-      portfolio.kpis.singlePointCriticalSkills,
-      styles.metricRed,
-    ],
-    [
-      "Unvalidated skills",
-      portfolio.kpis.unvalidatedSyntheticSkills,
-      styles.metricNeutral,
-    ],
+    { label: "Critical skills", value: portfolio.kpis.criticalSkills, tone: styles.metricBlue },
+    { label: "Major skill gaps", value: portfolio.kpis.majorSkillGaps, tone: styles.metricRed },
+    {
+      label: "Avg readiness",
+      value: pct(portfolio.kpis.averageReadiness),
+      tone: styles.metricGreen,
+    },
+    {
+      label: "Roles below 70%",
+      value: portfolio.kpis.rolesBelow70PctReadiness,
+      tone: styles.metricOrange,
+    },
+    {
+      label: "Activities at risk",
+      value: portfolio.kpis.activitiesAtSkillRisk,
+      tone: styles.metricPurple,
+    },
+    {
+      label: "Single-point skills",
+      value: portfolio.kpis.singlePointCriticalSkills,
+      tone: styles.metricRed,
+    },
   ];
 
   return (
     <section className={styles.kpiGrid}>
-      {kpis.map(([label, value, tone]) => (
-        <article className={styles.kpiCard} key={String(label)}>
-          <div className={cx(styles.kpiValue, String(tone))}>{value}</div>
+      {kpis.map(({ label, value, tone }) => (
+        <article className={styles.kpiCard} key={label}>
+          <div className={cx(styles.kpiValue, tone)}>{value}</div>
           <div className={styles.kpiLabel}>{label}</div>
         </article>
       ))}
+      {portfolio.kpis.unvalidatedSyntheticSkills > 0 && (
+        <article className={styles.kpiCard}>
+          <div className={cx(styles.kpiValue, styles.metricNeutral)}>
+            {portfolio.kpis.unvalidatedSyntheticSkills}
+          </div>
+          <div className={styles.kpiLabel}>Unvalidated skills</div>
+        </article>
+      )}
     </section>
   );
 }
 
-function OverviewTab({
-  portfolio,
-  activities,
-}: {
-  portfolio: SkillsCapabilityPortfolio;
-  activities: SkillsCapabilityActivityMetric[];
-}) {
-  const maxDepartmentGaps = Math.max(
-    1,
-    ...portfolio.filterOptions.departments.map((department) =>
-      portfolio.roles
-        .filter((role) => role.department === department)
-        .reduce((sum, role) => sum + role.majorGaps, 0),
-    ),
-  );
-  const maxSkillCoverage = Math.max(
-    1,
-    ...portfolio.skills.map((skill) => skill.employeesAtLevel3Plus),
-  );
-  const readinessBuckets: Array<[string, SkillsCapabilityRoleMetric[]]> = [
-    ["85-100%", portfolio.roles.filter((role) => role.readinessScore >= 85)],
+function CapabilityHealthSection({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
+  const deptGaps = portfolio.filterOptions.departments
+    .map((dept) => ({
+      dept,
+      majorGaps: portfolio.roles
+        .filter((r) => r.department === dept)
+        .reduce((sum, r) => sum + r.majorGaps, 0),
+    }))
+    .sort((a, b) => b.majorGaps - a.majorGaps);
+
+  const maxDeptGap = Math.max(1, ...deptGaps.map((d) => d.majorGaps));
+
+  const weakestCritical = portfolio.skills
+    .filter((s) => s.criticality === "High")
+    .sort((a, b) => a.employeesAtLevel3Plus - b.employeesAtLevel3Plus)
+    .slice(0, 10);
+
+  const maxCoverage = Math.max(1, ...portfolio.skills.map((s) => s.employeesAtLevel3Plus));
+
+  const readinessBuckets: Array<[string, SkillsCapabilityRoleMetric[], string]> = [
+    ["85–100%", portfolio.roles.filter((r) => r.readinessScore >= 85), styles.metricGreen],
     [
-      "70-85%",
-      portfolio.roles.filter(
-        (role) => role.readinessScore >= 70 && role.readinessScore < 85,
-      ),
+      "70–85%",
+      portfolio.roles.filter((r) => r.readinessScore >= 70 && r.readinessScore < 85),
+      styles.metricAmber,
     ],
     [
-      "50-70%",
-      portfolio.roles.filter(
-        (role) => role.readinessScore >= 50 && role.readinessScore < 70,
-      ),
+      "50–70%",
+      portfolio.roles.filter((r) => r.readinessScore >= 50 && r.readinessScore < 70),
+      styles.metricOrange,
     ],
-    ["0-50%", portfolio.roles.filter((role) => role.readinessScore < 50)],
+    ["<50%", portfolio.roles.filter((r) => r.readinessScore < 50), styles.metricRed],
   ];
-  const topRoleRisks = portfolio.roles
-    .filter((role) => role.majorGaps > 0)
-    .slice(0, 8);
-  const topActivityRisks = activities
-    .filter((activity) => activity.skillRisk === "High")
-    .slice(0, 5);
-  const topSinglePointRisks = portfolio.skills
-    .filter((skill) => skill.singlePointRisk === "High")
-    .slice(0, 5);
 
   return (
-    <div className={styles.overviewGrid}>
-      <ChartCard title="Skill Gaps by Department">
-        <div className={styles.barList}>
-          {portfolio.filterOptions.departments.map((department) => {
-            const majorGaps = portfolio.roles
-              .filter((role) => role.department === department)
-              .reduce((sum, role) => sum + role.majorGaps, 0);
-            return (
+    <section id="capability-health">
+      <div className={styles.sectionHeading}>
+        <h3>Capability Health Overview</h3>
+      </div>
+      <div className={styles.overviewGrid}>
+        <ChartCard
+          title="Where skill gaps concentrate"
+          subtitle="Departments ranked by total major gap count"
+        >
+          <div className={styles.barList}>
+            {deptGaps.map(({ dept, majorGaps }) => (
               <MetricBar
-                key={department || "blank"}
-                label={department || "No department"}
+                key={dept || "blank"}
+                label={dept || "No department"}
                 value={majorGaps}
-                width={(majorGaps / maxDepartmentGaps) * 100}
+                width={(majorGaps / maxDeptGap) * 100}
                 tone="red"
               />
-            );
-          })}
-        </div>
-      </ChartCard>
+            ))}
+            {deptGaps.length === 0 && (
+              <p className={styles.emptyNote}>No department data available.</p>
+            )}
+          </div>
+        </ChartCard>
 
-      <ChartCard title="Critical Skill Coverage">
-        <div className={styles.barList}>
-          {portfolio.skills
-            .filter((skill) => skill.criticality === "High")
-            .slice(0, 10)
-            .map((skill) => (
+        <ChartCard
+          title="Weakest critical skills"
+          subtitle="Critical skills with fewest employees at level 3+"
+        >
+          <div className={styles.barList}>
+            {weakestCritical.map((skill) => (
               <MetricBar
                 key={skill.skillId}
                 label={skill.skillName}
                 value={skill.employeesAtLevel3Plus}
-                width={(skill.employeesAtLevel3Plus / maxSkillCoverage) * 100}
+                width={(skill.employeesAtLevel3Plus / maxCoverage) * 100}
                 tone="green"
               />
             ))}
-        </div>
-      </ChartCard>
+            {weakestCritical.length === 0 && (
+              <p className={styles.emptyNote}>No critical skills found.</p>
+            )}
+          </div>
+        </ChartCard>
 
-      <ChartCard title="Readiness Distribution">
-        <div className={styles.distributionGrid}>
-          {readinessBuckets.map(([label, rows], index) => (
-            <div className={styles.distributionCard} key={String(label)}>
-              <strong
-                className={cx(
-                  index === 0 && styles.metricGreen,
-                  index === 1 && styles.metricAmber,
-                  index === 2 && styles.metricOrange,
-                  index === 3 && styles.metricRed,
-                )}
-              >
-                {rows.length}
-              </strong>
-              <span>{label}</span>
-            </div>
-          ))}
-        </div>
-      </ChartCard>
-
-      <article className={cx(styles.card, styles.fullWidth)}>
-        <div className={styles.cardHeader}>
-          <h3>Top Capability Risks</h3>
-          <span>Roles, activities, and single-point skill dependencies</span>
-        </div>
-        <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Risk type</th>
-                <th>Role / Activity</th>
-                <th>Department</th>
-                <th>Skill</th>
-                <th>Gap</th>
-                <th>Suggested action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topRoleRisks.map((role) => (
-                <tr key={`role-${roleReadinessRowKey(role)}`}>
-                  <td>Major role gap</td>
-                  <td>{role.role}</td>
-                  <td>{role.department || "-"}</td>
-                  <td>
-                    {role.skillDetails
-                      .filter((skill) => skill.gapStatus === "Major gap")
-                      .map((skill) => skill.skillName)
-                      .join(", ") || "-"}
-                  </td>
-                  <td>{role.majorGaps}</td>
-                  <td>Upskill / hire</td>
-                </tr>
-              ))}
-              {topActivityRisks.map((activity) => (
-                <tr key={`activity-${activity.activityId}`}>
-                  <td>Activity coverage risk</td>
-                  <td>{activity.activityName}</td>
-                  <td>-</td>
-                  <td>
-                    {activity.skillCoverageDetails
-                      .filter((skill) => skill.coveragePct < 50)
-                      .map((skill) => skill.skillName)
-                      .join(", ") || "-"}
-                  </td>
-                  <td>{activity.majorSkillGaps}</td>
-                  <td>Reassign or train</td>
-                </tr>
-              ))}
-              {topSinglePointRisks.map((skill) => (
-                <tr key={`skill-${skill.skillId}`}>
-                  <td>Single-point skill</td>
-                  <td>-</td>
-                  <td>-</td>
-                  <td>{skill.skillName}</td>
-                  <td>1 person</td>
-                  <td>Build backup</td>
-                </tr>
-              ))}
-              {topRoleRisks.length + topActivityRisks.length + topSinglePointRisks.length ===
-                0 && (
-                <tr>
-                  <td colSpan={6}>No capability risks found in current filters.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </div>
+        <ChartCard
+          title="Readiness distribution"
+          subtitle="Employee-role pairs by readiness band"
+        >
+          <div className={styles.distributionGrid}>
+            {readinessBuckets.map(([label, rows, colorClass]) => (
+              <div className={styles.distributionCard} key={String(label)}>
+                <strong className={String(colorClass)}>{rows.length}</strong>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+      </div>
+    </section>
   );
 }
 
 function ChartCard({
   title,
+  subtitle,
   children,
 }: {
   title: string;
+  subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
     <article className={styles.card}>
       <div className={styles.cardHeader}>
         <h3>{title}</h3>
+        {subtitle && <span>{subtitle}</span>}
       </div>
       {children}
     </article>
@@ -559,10 +352,7 @@ function MetricBar({
       <span title={label}>{label}</span>
       <div className={styles.barTrack}>
         <div
-          className={cx(
-            styles.barFill,
-            tone === "red" ? styles.barRed : styles.barGreen,
-          )}
+          className={cx(styles.barFill, tone === "red" ? styles.barRed : styles.barGreen)}
           style={{ width: `${Math.max(2, Math.min(100, width))}%` }}
         />
       </div>
@@ -571,7 +361,7 @@ function MetricBar({
   );
 }
 
-function GapHeatmapTab({
+function GapHeatmapSection({
   portfolio,
   heatmapView,
   onHeatmapViewChange,
@@ -585,300 +375,714 @@ function GapHeatmapTab({
       ? portfolio.filterOptions.departments.map((department) => ({
           key: department || "No department",
           label: department || "No department",
-          roles: portfolio.roles.filter(
-            (role) => role.department === department,
-          ),
+          roles: portfolio.roles.filter((role) => role.department === department),
         }))
-          : portfolio.roles.slice(0, 30).map((role) => ({
-              key: roleReadinessRowKey(role),
-          label:
-            heatmapView === "role-skill"
-              ? `${role.role} - ${role.employeeName}`
-              : role.employeeName,
-          roles: [role],
-        }));
+      : portfolio.roles
+          .slice()
+          .sort((a, b) => b.majorGaps - a.majorGaps)
+          .slice(0, 20)
+          .map((role) => ({
+            key: roleReadinessRowKey(role),
+            label:
+              heatmapView === "role-skill"
+                ? `${role.role} — ${role.employeeName}`
+                : role.employeeName,
+            roles: [role],
+          }));
 
   const columns =
     heatmapView === "department-family"
       ? portfolio.filterOptions.skillFamilies
-      : portfolio.skills.slice(0, 16).map((skill) => skill.skillName);
+      : portfolio.skills.slice(0, 16).map((s) => s.skillName);
+
+  const rowHeader =
+    heatmapView === "department-family"
+      ? "Department"
+      : heatmapView === "role-skill"
+        ? "Role"
+        : "Employee";
 
   return (
-    <article className={styles.card}>
-      <div className={styles.cardHeaderRow}>
-        <div>
-          <h3>Skill Gap Heatmap</h3>
-          <span>Cell values show major gap count for the selected cut.</span>
-        </div>
-        <div className={styles.segmented}>
-          {[
-            ["department-family", "Department x Skill Family"],
-            ["role-skill", "Role x Skill"],
-            ["employee-skill", "Employee x Skill"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              className={cx(
-                styles.segment,
-                heatmapView === id && styles.segmentActive,
-              )}
-              type="button"
-              onClick={() => onHeatmapViewChange(id as HeatmapView)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+    <section id="gap-heatmap">
+      <div className={styles.sectionHeading}>
+        <h3>Skill Gap Heatmap</h3>
       </div>
-      <div className={styles.tableScroll}>
-        <table className={styles.heatmap}>
-          <thead>
-            <tr>
-              <th>{heatmapView === "department-family" ? "Department" : "Role"}</th>
-              {columns.map((column) => (
-                <th key={column}>{column}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <td>{row.label}</td>
-                {columns.map((column) => {
-                  const majorGaps = row.roles.reduce((sum, role) => {
-                    return (
-                      sum +
-                      role.skillDetails.filter((detail) => {
-                        if (heatmapView === "department-family") {
-                          const skill = portfolio.skills.find(
-                            (item) => item.skillId === detail.skillId,
-                          );
-                          return (
-                            skill?.skillFamily === column &&
-                            detail.gapStatus === "Major gap"
-                          );
-                        }
-                        return (
-                          detail.skillName === column &&
-                          detail.gapStatus === "Major gap"
-                        );
-                      }).length
-                    );
-                  }, 0);
-                  return (
-                    <td key={column} className={heatClass(majorGaps)}>
-                      {majorGaps || ""}
-                    </td>
-                  );
-                })}
-              </tr>
+      <article className={styles.card}>
+        <div className={styles.cardHeaderRow}>
+          <p className={styles.heatmapHelper}>
+            Cells show major skill gap counts for the selected cut. Role and employee views are
+            limited to highest-gap rows for readability.
+          </p>
+          <div className={styles.segmented}>
+            {HEATMAP_MODES.map(({ id, label }) => (
+              <button
+                key={id}
+                className={cx(styles.segment, heatmapView === id && styles.segmentActive)}
+                type="button"
+                onClick={() => onHeatmapViewChange(id)}
+              >
+                {label}
+              </button>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <div className={styles.legend}>
-        <span>0 = Covered</span>
-        <span>1 = Minor watch</span>
-        <span>2+ = Moderate gap</span>
-        <span>3+ = Major gap</span>
-      </div>
-    </article>
+          </div>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.heatmap}>
+            <thead>
+              <tr>
+                <th>{rowHeader}</th>
+                {columns.map((col) => (
+                  <th key={col}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  {columns.map((col) => {
+                    const majorGaps = row.roles.reduce((sum, role) => {
+                      return (
+                        sum +
+                        role.skillDetails.filter((detail) => {
+                          if (heatmapView === "department-family") {
+                            const skill = portfolio.skills.find(
+                              (item) => item.skillId === detail.skillId,
+                            );
+                            return (
+                              skill?.skillFamily === col && detail.gapStatus === "Major gap"
+                            );
+                          }
+                          return detail.skillName === col && detail.gapStatus === "Major gap";
+                        }).length
+                      );
+                    }, 0);
+                    return (
+                      <td key={col} className={heatClass(majorGaps)}>
+                        {majorGaps || ""}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className={styles.legend}>
+          <span>0 = Covered</span>
+          <span>1 = Minor watch</span>
+          <span>2+ = Moderate gap</span>
+          <span>3+ = Major gap</span>
+        </div>
+      </article>
+    </section>
   );
 }
 
-function RoleReadinessTab({
+function TopCapabilityRisksSection({
+  portfolio,
+  activities,
+}: {
+  portfolio: SkillsCapabilityPortfolio;
+  activities: SkillsCapabilityActivityMetric[];
+}) {
+  const topRoleRisks = portfolio.roles
+    .filter((r) => r.majorGaps > 0)
+    .sort((a, b) => b.majorGaps - a.majorGaps)
+    .slice(0, 4);
+
+  const topActivityRisks = activities
+    .filter((a) => a.skillRisk === "High")
+    .sort((a, b) => b.costAtRisk - a.costAtRisk)
+    .slice(0, 3);
+
+  const topSinglePoint = portfolio.skills
+    .filter((s) => s.singlePointRisk === "High")
+    .slice(0, 3);
+
+  const total = topRoleRisks.length + topActivityRisks.length + topSinglePoint.length;
+
+  return (
+    <section id="top-risks">
+      <div className={styles.sectionHeading}>
+        <h3>Top Capability Risks</h3>
+        <span>Roles, activities, and single-point skill dependencies most at risk</span>
+      </div>
+      <article className={styles.card}>
+        <div className={styles.tableScroll}>
+          <table className={styles.table} style={{ minWidth: 560 }}>
+            <thead>
+              <tr>
+                <th>Risk Type</th>
+                <th>Role / Activity</th>
+                <th>Department</th>
+                <th>Top Missing Skills</th>
+                <th>Gap</th>
+                <th>Suggested Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topRoleRisks.map((role) => {
+                const missing = role.skillDetails
+                  .filter((s) => s.gapStatus === "Major gap")
+                  .map((s) => s.skillName);
+                return (
+                  <tr key={`role-${roleReadinessRowKey(role)}`}>
+                    <td>
+                      <span className={cx(styles.badge, styles.badgeRed)}>Role gap</span>
+                    </td>
+                    <td>{role.role}</td>
+                    <td>{role.department || "—"}</td>
+                    <td title={missing.join(", ")}>{truncateSkills(missing)}</td>
+                    <td>{role.majorGaps}</td>
+                    <td>Upskill / hire</td>
+                  </tr>
+                );
+              })}
+              {topActivityRisks.map((activity) => {
+                const missing = activity.skillCoverageDetails
+                  .filter((s) => s.coveragePct < 50)
+                  .map((s) => s.skillName);
+                return (
+                  <tr key={`activity-${activity.activityId}`}>
+                    <td>
+                      <span className={cx(styles.badge, styles.badgeOrange)}>Activity risk</span>
+                    </td>
+                    <td>{activity.activityName}</td>
+                    <td>—</td>
+                    <td title={missing.join(", ")}>{truncateSkills(missing)}</td>
+                    <td>{activity.majorSkillGaps}</td>
+                    <td>Reassign or train</td>
+                  </tr>
+                );
+              })}
+              {topSinglePoint.map((skill) => (
+                <tr key={`skill-${skill.skillId}`}>
+                  <td>
+                    <span className={cx(styles.badge, styles.badgeAmber)}>Single-point</span>
+                  </td>
+                  <td>{skill.skillName}</td>
+                  <td>—</td>
+                  <td>{skill.skillName}</td>
+                  <td>1 person</td>
+                  <td>Build backup</td>
+                </tr>
+              ))}
+              {total === 0 && (
+                <tr>
+                  <td colSpan={6}>No capability risks found in current filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function RoleReadinessDrilldown({
   roles,
   onSelectRole,
+  filterOptions,
 }: {
   roles: SkillsCapabilityRoleMetric[];
-  onSelectRole: (roleKey: string) => void;
+  onSelectRole: (key: string) => void;
+  filterOptions: SkillsCapabilityPortfolio["filterOptions"];
 }) {
-  const visibleRoles = roles.slice(0, ROLE_READINESS_TABLE_LIMIT);
-  const hiddenRoleCount = Math.max(0, roles.length - visibleRoles.length);
+  const [deptFilter, setDeptFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [bandFilter, setBandFilter] = useState("");
+
+  const uniqueRoles = useMemo(() => {
+    const set = new Set(roles.map((r) => r.role));
+    return Array.from(set).sort();
+  }, [roles]);
+
+  const filtered = useMemo(() => {
+    return roles.filter((r) => {
+      if (deptFilter && r.department !== deptFilter) return false;
+      if (roleFilter && r.role !== roleFilter) return false;
+      if (bandFilter === "high-risk" && r.riskStatus !== "High capability risk") return false;
+      if (bandFilter === "dev-needed" && r.riskStatus !== "Development needed") return false;
+      if (bandFilter === "minor-gaps" && r.riskStatus !== "Minor gaps") return false;
+      if (bandFilter === "ready" && r.riskStatus !== "Ready") return false;
+      return true;
+    });
+  }, [roles, deptFilter, roleFilter, bandFilter]);
+
+  const compact = filtered
+    .slice()
+    .sort((a, b) => a.readinessScore - b.readinessScore)
+    .slice(0, 20);
 
   return (
-    <article className={styles.card}>
-      <div className={styles.cardHeader}>
+    <section id="role-readiness">
+      <div className={styles.sectionHeading}>
         <h3>Role Readiness</h3>
-        <span>Click a row to inspect required skills and gaps.</span>
+        <span>
+          Sorted by readiness score (lowest first). Click a row to inspect required skills and gaps.
+        </span>
       </div>
-      {hiddenRoleCount > 0 && (
-        <div className={styles.tableNotice}>
-          Showing first {ROLE_READINESS_TABLE_LIMIT.toLocaleString()} of{" "}
-          {roles.length.toLocaleString()} matching role-readiness rows. Use
-          search or filters to narrow the list.
-        </div>
-      )}
-      <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th>Role</th>
-              <th>Department</th>
-              <th>Grade</th>
-              <th>Required</th>
-              <th>Covered</th>
-              <th>Minor gaps</th>
-              <th>Major gaps</th>
-              <th>Critical gaps</th>
-              <th>Readiness</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRoles.map((role) => (
-              <tr
-                className={styles.clickRow}
-                key={roleReadinessRowKey(role)}
-                onClick={() => onSelectRole(roleReadinessRowKey(role))}
-              >
-                <td>{role.employeeName}</td>
-                <td>{role.role}</td>
-                <td>{role.department || "-"}</td>
-                <td>{role.grade || "-"}</td>
-                <td>{role.requiredSkills}</td>
-                <td>{role.coveredSkills}</td>
-                <td>{role.minorGaps}</td>
-                <td>{role.majorGaps}</td>
-                <td>{role.criticalGaps}</td>
-                <td>{pct(role.readinessScore)}</td>
-                <td>
-                  <span className={cx(styles.badge, riskClass(role.riskStatus))}>
-                    {role.riskStatus}
-                  </span>
-                </td>
-              </tr>
+      <article className={styles.card}>
+        <div className={styles.drilldownFilters}>
+          <select
+            className={styles.select}
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+          >
+            <option value="">All departments</option>
+            {filterOptions.departments.map((d) => (
+              <option key={d} value={d}>
+                {d || "No department"}
+              </option>
             ))}
-            {roles.length === 0 && (
+          </select>
+          <select
+            className={styles.select}
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
+            <option value="">All roles</option>
+            {uniqueRoles.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <select
+            className={styles.select}
+            value={bandFilter}
+            onChange={(e) => setBandFilter(e.target.value)}
+          >
+            <option value="">All readiness bands</option>
+            <option value="high-risk">High capability risk</option>
+            <option value="dev-needed">Development needed</option>
+            <option value="minor-gaps">Minor gaps</option>
+            <option value="ready">Ready</option>
+          </select>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.table} style={{ minWidth: 520 }}>
+            <thead>
               <tr>
-                <td colSpan={11}>No roles match the current filters.</td>
+                <th>Employee</th>
+                <th>Role</th>
+                <th>Department</th>
+                <th>Readiness</th>
+                <th>Major Gaps</th>
+                <th>Status</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </article>
+            </thead>
+            <tbody>
+              {compact.map((role) => (
+                <tr
+                  key={roleReadinessRowKey(role)}
+                  className={styles.clickRow}
+                  onClick={() => onSelectRole(roleReadinessRowKey(role))}
+                >
+                  <td>{role.employeeName}</td>
+                  <td>{role.role}</td>
+                  <td>{role.department || "—"}</td>
+                  <td>{pct(role.readinessScore)}</td>
+                  <td>{role.majorGaps}</td>
+                  <td>
+                    <span className={cx(styles.badge, riskClass(role.riskStatus))}>
+                      {role.riskStatus}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {compact.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No roles match the current filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 20 && (
+          <div className={styles.tableNotice}>
+            Showing {compact.length} of {filtered.length} matching roles — expand the full table
+            below or refine filters.
+          </div>
+        )}
+        <details className={styles.detailsBlock}>
+          <summary className={styles.summaryToggle}>
+            Full role readiness table ({filtered.length} rows)
+          </summary>
+          <div className={styles.detailsContent}>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Role</th>
+                    <th>Department</th>
+                    <th>Grade</th>
+                    <th>Required</th>
+                    <th>Covered</th>
+                    <th>Minor gaps</th>
+                    <th>Major gaps</th>
+                    <th>Critical gaps</th>
+                    <th>Readiness</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((role) => (
+                    <tr
+                      key={roleReadinessRowKey(role)}
+                      className={styles.clickRow}
+                      onClick={() => onSelectRole(roleReadinessRowKey(role))}
+                    >
+                      <td>{role.employeeName}</td>
+                      <td>{role.role}</td>
+                      <td>{role.department || "—"}</td>
+                      <td>{role.grade || "—"}</td>
+                      <td>{role.requiredSkills}</td>
+                      <td>{role.coveredSkills}</td>
+                      <td>{role.minorGaps}</td>
+                      <td>{role.majorGaps}</td>
+                      <td>{role.criticalGaps}</td>
+                      <td>{pct(role.readinessScore)}</td>
+                      <td>
+                        <span className={cx(styles.badge, riskClass(role.riskStatus))}>
+                          {role.riskStatus}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={11}>No roles match the current filters.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </article>
+    </section>
   );
 }
 
-function ActivityRiskTab({
+function ActivityRiskDrilldown({
   activities,
 }: {
   activities: SkillsCapabilityActivityMetric[];
 }) {
+  const [critFilter, setCritFilter] = useState("");
+  const [riskFilter, setRiskFilter] = useState("");
+
+  const filtered = useMemo(() => {
+    return activities.filter((a) => {
+      if (critFilter && a.criticality !== critFilter) return false;
+      if (riskFilter && a.skillRisk !== riskFilter) return false;
+      return true;
+    });
+  }, [activities, critFilter, riskFilter]);
+
+  const top10 = filtered
+    .slice()
+    .sort((a, b) => b.costAtRisk - a.costAtRisk)
+    .slice(0, 10);
+
   return (
-    <article className={styles.card}>
-      <div className={styles.cardHeader}>
+    <section id="activity-risk">
+      <div className={styles.sectionHeading}>
         <h3>Activity-Skill Risk</h3>
-        <span>Coverage joins assigned people to activity skill requirements.</span>
+        <span>Top 10 activities by cost at risk. Coverage joins assigned people to skill requirements.</span>
       </div>
-      <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Activity</th>
-              <th>Criticality</th>
-              <th>People</th>
-              <th>Required skills</th>
-              <th>Lowest coverage</th>
-              <th>Major gaps</th>
-              <th>Risk</th>
-              <th>Cost at risk</th>
-              <th>FTE at risk</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activities.map((activity) => (
-              <tr key={activity.activityId}>
-                <td>{activity.activityName}</td>
-                <td>{activity.criticality || "-"}</td>
-                <td>{activity.assignedPeople}</td>
-                <td>{activity.requiredSkills}</td>
-                <td>
-                  {activity.skillRisk === "Unknown"
-                    ? "Unknown"
-                    : pct(activity.lowestSkillCoveragePct)}
-                </td>
-                <td>{activity.majorSkillGaps}</td>
-                <td>
-                  <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
-                    {activity.skillRisk}
-                  </span>
-                </td>
-                <td>{money(activity.costAtRisk)}</td>
-                <td>{activity.fteAtRisk.toFixed(1)}</td>
-              </tr>
-            ))}
-            {activities.length === 0 && (
+      <article className={styles.card}>
+        <div className={styles.drilldownFilters}>
+          <select
+            className={styles.select}
+            value={critFilter}
+            onChange={(e) => setCritFilter(e.target.value)}
+          >
+            <option value="">All criticality</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select
+            className={styles.select}
+            value={riskFilter}
+            onChange={(e) => setRiskFilter(e.target.value)}
+          >
+            <option value="">All risk levels</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.table} style={{ minWidth: 520 }}>
+            <thead>
               <tr>
-                <td colSpan={9}>No activities match the current filters.</td>
+                <th>Activity</th>
+                <th>Criticality</th>
+                <th>People</th>
+                <th>Major Gaps</th>
+                <th>Cost at Risk</th>
+                <th>Risk</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </article>
+            </thead>
+            <tbody>
+              {top10.map((activity) => (
+                <tr key={activity.activityId}>
+                  <td>{activity.activityName}</td>
+                  <td>{activity.criticality || "—"}</td>
+                  <td>{activity.assignedPeople}</td>
+                  <td>{activity.majorSkillGaps}</td>
+                  <td>{money(activity.costAtRisk)}</td>
+                  <td>
+                    <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
+                      {activity.skillRisk}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {top10.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No activities match the current filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <details className={styles.detailsBlock}>
+          <summary className={styles.summaryToggle}>
+            Full activity risk table ({filtered.length} activities)
+          </summary>
+          <div className={styles.detailsContent}>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Activity</th>
+                    <th>Criticality</th>
+                    <th>People</th>
+                    <th>Required skills</th>
+                    <th>Lowest coverage</th>
+                    <th>Major gaps</th>
+                    <th>Risk</th>
+                    <th>Cost at risk</th>
+                    <th>FTE at risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((activity) => (
+                    <tr key={activity.activityId}>
+                      <td>{activity.activityName}</td>
+                      <td>{activity.criticality || "—"}</td>
+                      <td>{activity.assignedPeople}</td>
+                      <td>{activity.requiredSkills}</td>
+                      <td>
+                        {activity.skillRisk === "Unknown"
+                          ? "Unknown"
+                          : pct(activity.lowestSkillCoveragePct)}
+                      </td>
+                      <td>{activity.majorSkillGaps}</td>
+                      <td>
+                        <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
+                          {activity.skillRisk}
+                        </span>
+                      </td>
+                      <td>{money(activity.costAtRisk)}</td>
+                      <td>{activity.fteAtRisk.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9}>No activities match the current filters.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </article>
+    </section>
   );
 }
 
-function SkillCoverageTab({
+function SkillCoverageDrilldown({
   skills,
+  filterOptions,
 }: {
   skills: SkillsCapabilitySkillMetric[];
+  filterOptions: SkillsCapabilityPortfolio["filterOptions"];
 }) {
+  const [familyFilter, setFamilyFilter] = useState("");
+  const [critFilter, setCritFilter] = useState("");
+  const [spFilter, setSpFilter] = useState("");
+
+  const filtered = useMemo(() => {
+    return skills.filter((s) => {
+      if (familyFilter && s.skillFamily !== familyFilter) return false;
+      if (critFilter && s.criticality !== critFilter) return false;
+      if (spFilter && s.singlePointRisk !== spFilter) return false;
+      return true;
+    });
+  }, [skills, familyFilter, critFilter, spFilter]);
+
+  const critOrder = (c: string) => (c === "High" ? 0 : c === "Medium" ? 1 : 2);
+  const spOrder = (s: string) => (s === "High" ? 0 : s === "Medium" ? 1 : 2);
+
+  const sorted = filtered
+    .slice()
+    .sort((a, b) => {
+      if (critOrder(a.criticality) !== critOrder(b.criticality))
+        return critOrder(a.criticality) - critOrder(b.criticality);
+      if (spOrder(a.singlePointRisk) !== spOrder(b.singlePointRisk))
+        return spOrder(a.singlePointRisk) - spOrder(b.singlePointRisk);
+      return a.employeesAtLevel3Plus - b.employeesAtLevel3Plus;
+    })
+    .slice(0, 20);
+
   return (
-    <article className={styles.card}>
-      <div className={styles.cardHeader}>
+    <section id="skill-coverage">
+      <div className={styles.sectionHeading}>
         <h3>Skill Coverage</h3>
-        <span>Supply, demand, departments covered, and single-point risk.</span>
+        <span>
+          Critical and single-point skills surface first. Supply, demand, and dependency risk.
+        </span>
       </div>
-      <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Skill</th>
-              <th>Family</th>
-              <th>Criticality</th>
-              <th>Employees</th>
-              <th>Level 3+</th>
-              <th>Level 4+</th>
-              <th>Departments</th>
-              <th>Activities</th>
-              <th>Roles</th>
-              <th>Single point risk</th>
-            </tr>
-          </thead>
-          <tbody>
-            {skills.map((skill) => (
-              <tr key={skill.skillId}>
-                <td>{skill.skillName}</td>
-                <td>{skill.skillFamily || "-"}</td>
-                <td>{skill.criticality || "-"}</td>
-                <td>{skill.employeesWithSkill}</td>
-                <td>{skill.employeesAtLevel3Plus}</td>
-                <td>{skill.employeesAtLevel4Plus}</td>
-                <td>{skill.departmentsCovered}</td>
-                <td>{skill.activitiesRequiringSkill}</td>
-                <td>{skill.rolesRequiringSkill}</td>
-                <td>
-                  <span
-                    className={cx(styles.badge, riskClass(skill.singlePointRisk))}
-                  >
-                    {skill.singlePointRisk}
-                  </span>
-                </td>
-              </tr>
+      <article className={styles.card}>
+        <div className={styles.drilldownFilters}>
+          <select
+            className={styles.select}
+            value={familyFilter}
+            onChange={(e) => setFamilyFilter(e.target.value)}
+          >
+            <option value="">All skill families</option>
+            {filterOptions.skillFamilies.map((f) => (
+              <option key={f} value={f}>
+                {f || "No family"}
+              </option>
             ))}
-            {skills.length === 0 && (
+          </select>
+          <select
+            className={styles.select}
+            value={critFilter}
+            onChange={(e) => setCritFilter(e.target.value)}
+          >
+            <option value="">All criticality</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select
+            className={styles.select}
+            value={spFilter}
+            onChange={(e) => setSpFilter(e.target.value)}
+          >
+            <option value="">All single-point risk</option>
+            <option value="High">High (single-point)</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.table} style={{ minWidth: 580 }}>
+            <thead>
               <tr>
-                <td colSpan={10}>No skills match the current filters.</td>
+                <th>Skill</th>
+                <th>Family</th>
+                <th>Criticality</th>
+                <th>Employees</th>
+                <th>Level 3+</th>
+                <th>Activities</th>
+                <th>Single-Point Risk</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </article>
+            </thead>
+            <tbody>
+              {sorted.map((skill) => (
+                <tr key={skill.skillId}>
+                  <td>{skill.skillName}</td>
+                  <td>{skill.skillFamily || "—"}</td>
+                  <td>{skill.criticality || "—"}</td>
+                  <td>{skill.employeesWithSkill}</td>
+                  <td>{skill.employeesAtLevel3Plus}</td>
+                  <td>{skill.activitiesRequiringSkill}</td>
+                  <td>
+                    <span className={cx(styles.badge, riskClass(skill.singlePointRisk))}>
+                      {skill.singlePointRisk}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={7}>No skills match the current filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 20 && (
+          <div className={styles.tableNotice}>
+            Showing top {sorted.length} of {filtered.length} skills — expand the full table below
+            or refine filters.
+          </div>
+        )}
+        <details className={styles.detailsBlock}>
+          <summary className={styles.summaryToggle}>
+            Full skill coverage table ({filtered.length} skills)
+          </summary>
+          <div className={styles.detailsContent}>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Skill</th>
+                    <th>Family</th>
+                    <th>Criticality</th>
+                    <th>Employees</th>
+                    <th>Level 3+</th>
+                    <th>Level 4+</th>
+                    <th>Departments</th>
+                    <th>Activities</th>
+                    <th>Roles</th>
+                    <th>Single-point risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((skill) => (
+                    <tr key={skill.skillId}>
+                      <td>{skill.skillName}</td>
+                      <td>{skill.skillFamily || "—"}</td>
+                      <td>{skill.criticality || "—"}</td>
+                      <td>{skill.employeesWithSkill}</td>
+                      <td>{skill.employeesAtLevel3Plus}</td>
+                      <td>{skill.employeesAtLevel4Plus}</td>
+                      <td>{skill.departmentsCovered}</td>
+                      <td>{skill.activitiesRequiringSkill}</td>
+                      <td>{skill.rolesRequiringSkill}</td>
+                      <td>
+                        <span className={cx(styles.badge, riskClass(skill.singlePointRisk))}>
+                          {skill.singlePointRisk}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={10}>No skills match the current filters.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </article>
+    </section>
   );
 }
 
@@ -896,7 +1100,7 @@ function RoleDetailDrawer({
           <div className={styles.eyebrow}>Role detail</div>
           <h3>{role.employeeName}</h3>
           <p>
-            {role.role} - {role.department || "No department"}
+            {role.role} — {role.department || "No department"}
           </p>
         </div>
         <button className={styles.iconButton} type="button" onClick={onClose}>
@@ -959,13 +1163,7 @@ function RoleDetailDrawer({
   );
 }
 
-function MiniMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
+function MiniMetric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className={styles.miniMetric}>
       <strong>{value}</strong>

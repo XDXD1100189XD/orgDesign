@@ -720,6 +720,10 @@
   line-height: 1.6;
 }
 
+.deptDash { color: var(--slate-light); }
+.deptNone { color: var(--slate-light); font-style: italic; }
+.pctLabel { color: var(--slate-2); font-size: 11px; }
+
 /* ─────────────────────────────────────────────────────
    RESPONSIVE
 ───────────────────────────────────────────────────── */

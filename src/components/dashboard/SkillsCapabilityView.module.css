@@ -13,8 +13,7 @@
 .drawer {
   background: #fff;
   border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 6px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+  border-radius: 4px;
 }
 
 .header {
@@ -104,7 +103,7 @@
 
 .kpiGrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -311,6 +310,7 @@
 
 .tableScroll {
   overflow: auto;
+  max-height: 400px;
 }
 
 .tableNotice {
@@ -611,4 +611,83 @@
   .tab {
     flex: 1 1 160px;
   }
+}
+
+/* ── Single-page diagnostic additions ── */
+
+.sectionHeading {
+  margin-bottom: 10px;
+}
+
+.sectionHeading h3 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.sectionHeading span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--slate-light);
+}
+
+.drilldownFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.detailsBlock {
+  margin-top: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.summaryToggle {
+  display: block;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: rgba(248, 250, 252, 0.85);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate-light);
+  user-select: none;
+  list-style: none;
+}
+
+.summaryToggle::-webkit-details-marker {
+  display: none;
+}
+
+details[open] > .summaryToggle {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  color: var(--ink);
+}
+
+.detailsContent {
+  padding: 0 0 12px;
+}
+
+.heatmapHelper {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--slate-light);
+  line-height: 1.5;
+  max-width: 540px;
+}
+
+.emptyNote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--slate-light);
 }

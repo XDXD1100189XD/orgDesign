@@ -12,6 +12,8 @@ interface Props {
     collapsed?: boolean;
     childCount?: number;
     isBoundary?: boolean;
+    dept?: string | null;
+    visibleFields?: string[];
   };
 }
 
@@ -19,6 +21,7 @@ function OrgNode({ data }: Props) {
   const isRoot = data.depth === 0;
   const isLeaf = data.span === 0;
   const depthClass = `depth${Math.min(data.depth, 4)}`;
+  const visible = new Set(data.visibleFields ?? ['role', 'empId', 'grade', 'geo']);
 
   const cls = [
     styles.node,
@@ -35,7 +38,13 @@ function OrgNode({ data }: Props) {
     .join(" ");
 
   return (
-    <div className={cls}>
+    <div
+      className={cls}
+      style={data.filterColor && !isRoot
+        ? { borderLeftColor: data.filterColor, borderLeftWidth: 4, borderLeftStyle: "solid" }
+        : undefined
+      }
+    >
       <Handle type="target" position={Position.Top} className={styles.handle} />
 
       <div className={styles.header}>
@@ -43,14 +52,24 @@ function OrgNode({ data }: Props) {
           {data.openRole && <span className={styles.openBadge}>OPEN</span>}
           {data.unnamed ? <i>{data.displayName}</i> : data.displayName}
         </div>
+        {data.filterColor && (
+          <span
+            style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: data.filterColor, flexShrink: 0,
+              display: "inline-block", marginTop: 2,
+            }}
+          />
+        )}
       </div>
 
-      <div className={styles.role}>{data.role}</div>
+      {visible.has('role') && <div className={styles.role}>{data.role}</div>}
 
       <div className={styles.meta}>
-        {data.empId && <span className={styles.id}>{data.empId}</span>}
-        {data.grade && <span className={styles.grade}>{data.grade}</span>}
-        {data.geo && <span className={styles.geoBadge}>{data.geo}</span>}
+        {visible.has('empId') && data.empId && <span className={styles.id}>{data.empId}</span>}
+        {visible.has('grade') && data.grade && <span className={styles.grade}>{data.grade}</span>}
+        {visible.has('geo') && data.geo && <span className={styles.geoBadge}>{data.geo}</span>}
+        {visible.has('dept') && data.dept && <span className={styles.deptBadge}>{data.dept}</span>}
         {data.isUserCreated && <span className={styles.userBadge}>USER</span>}
         {data.isOrphan && <span className={styles.orphanBadge}>UNASSIGNED</span>}
         {data.span > 0 && (

@@ -6,11 +6,20 @@ import { parseExcelFile, type ExcelRow } from '@/lib/parseExcel';
 import {
   COST_SCHEMA, type CostKey,
   LOADED_COMPONENTS, TRANSITION_COMPONENTS, COST_LABELS,
-  GROSS_SALARY_ALIASES, TENURE_ALIASES, JOB_FAMILY_ALIASES,
+  GROSS_SALARY_ALIASES, JOB_FAMILY_ALIASES,
   EMPLOYEE_NAME_ALIASES, EMPLOYEE_ID_ALIASES,
   detectCostColumns, detectColumn, fmtNum,
 } from '@/lib/costSchema';
 import styles from './AdvancedAnalyticsView.module.css';
+
+const FTE_ALIASES = [
+  'fte', 'full_time_equivalent', 'fulltime_equivalent', 'fte_count', 'headcount_fte',
+] as const;
+
+const MONTHLY_COST_ALIASES = [
+  'monthly_cost', 'monthly_salary', 'monthly_pay', 'monthly_compensation',
+  'monthly_ctc', 'monthly_gross',
+] as const;
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -57,6 +66,17 @@ interface StructuralMetrics {
   orphans: { id: string; name: string; role: string }[];
   functionSpread: FunctionSpreadManager[];
   totalManagers: number;
+}
+
+interface DeptRow {
+  dept: string;
+  headcount: number;
+  fte: number;
+  openRoles: number;
+  openRolesPct: number;
+  avgSpan: number | null;
+  maxDepth: number;
+  costPerFte: number | null;
 }
 
 function computeStructural(data: DashboardData): StructuralMetrics {
@@ -291,6 +311,75 @@ function computeTenure(rows: ExcelRow[], col: string): TenureStats | null {
   };
 }
 
+// ─── department analysis ──────────────────────────────────────────────────
+
+function computeDeptAnalysis(
+  data: DashboardData,
+  rows: ExcelRow[],
+  fteCol: string | null,
+  annualCostCol: string | null,
+  monthlyCol: string | null,
+  nameCol: string | null,
+  idCol: string | null,
+): DeptRow[] {
+  const { vertices, metrics } = data;
+  const { span, depth } = metrics;
+  const UNASSIGNED = '(No Department)';
+
+  const byId   = new Map<string, { fte: number; cost: number }>();
+  const byName = new Map<string, { fte: number; cost: number }>();
+  const hasCostCol = !!(annualCostCol || monthlyCol);
+  const hasExcel   = rows.length > 0;
+
+  for (const row of rows) {
+    const fte  = fteCol ? (numVal(row[fteCol]) ?? 1) : 1;
+    let   cost = 0;
+    if (annualCostCol)      cost = numVal(row[annualCostCol]) ?? 0;
+    else if (monthlyCol)    cost = (numVal(row[monthlyCol]) ?? 0) * 12;
+    if (idCol)   { const id = String(row[idCol]   ?? '').trim().toLowerCase(); if (id) byId.set(id, { fte, cost }); }
+    if (nameCol) { const n  = normName(String(row[nameCol] ?? ''));             if (n)  byName.set(n, { fte, cost }); }
+  }
+
+  const getExcel = (vid: string): { fte: number; cost: number } | null => {
+    const v = vertices[vid];
+    if (!v) return null;
+    if (idCol && v.id) { const d = byId.get(v.id.toLowerCase()); if (d) return d; }
+    if (nameCol)       { const d = byName.get(normName(v.display_name)); if (d) return d; }
+    return null;
+  };
+
+  type Acc = { headcount: number; fte: number; openRoles: number; spanSum: number; spanCount: number; maxDepth: number; totalCost: number };
+  const groups = new Map<string, Acc>();
+
+  for (const [vid, v] of Object.entries(vertices)) {
+    const key = v.dept || UNASSIGNED;
+    if (!groups.has(key)) groups.set(key, { headcount: 0, fte: 0, openRoles: 0, spanSum: 0, spanCount: 0, maxDepth: 0, totalCost: 0 });
+    const g = groups.get(key)!;
+    g.headcount++;
+    if (v.open_role) g.openRoles++;
+    const d = depth[vid] ?? 0;
+    if (d > g.maxDepth) g.maxDepth = d;
+    const s = span[vid] ?? 0;
+    if (s > 0) { g.spanSum += s; g.spanCount++; }
+    const ex = getExcel(vid);
+    g.fte       += ex?.fte  ?? 1;
+    g.totalCost += ex?.cost ?? 0;
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b))
+    .map(([dept, g]) => ({
+      dept,
+      headcount: g.headcount,
+      fte: Math.round(g.fte * 10) / 10,
+      openRoles: g.openRoles,
+      openRolesPct: g.headcount > 0 ? Math.round((g.openRoles / g.headcount) * 100) : 0,
+      avgSpan: g.spanCount > 0 ? Math.round((g.spanSum / g.spanCount) * 10) / 10 : null,
+      maxDepth: g.maxDepth,
+      costPerFte: (hasExcel && hasCostCol && g.fte > 0) ? Math.round(g.totalCost / g.fte) : null,
+    }));
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────
 
 function SectionHeader({ num, title, sub }: { num: string; title: string; sub?: string }) {
@@ -415,17 +504,18 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props)
       });
   }, [file, sourceRows]);
 
-  const colMap     = useMemo(() => detectCostColumns(headers), [headers]);
-  const grossCol   = useMemo(() => detectColumn(headers, GROSS_SALARY_ALIASES), [headers]);
-  const tenureCol  = useMemo(() => detectColumn(headers, TENURE_ALIASES), [headers]);
-  const jobFamCol  = useMemo(() => detectColumn(headers, JOB_FAMILY_ALIASES), [headers]);
-  const nameCol    = useMemo(() => detectColumn(headers, EMPLOYEE_NAME_ALIASES), [headers]);
-  const idCol      = useMemo(() => detectColumn(headers, EMPLOYEE_ID_ALIASES), [headers]);
+  const colMap       = useMemo(() => detectCostColumns(headers), [headers]);
+  const grossCol     = useMemo(() => detectColumn(headers, GROSS_SALARY_ALIASES), [headers]);
+  const fteCol       = useMemo(() => detectColumn(headers, FTE_ALIASES), [headers]);
+  const monthlyCol   = useMemo(() => detectColumn(headers, MONTHLY_COST_ALIASES), [headers]);
+  const jobFamCol    = useMemo(() => detectColumn(headers, JOB_FAMILY_ALIASES), [headers]);
+  const nameCol      = useMemo(() => detectColumn(headers, EMPLOYEE_NAME_ALIASES), [headers]);
+  const idCol        = useMemo(() => detectColumn(headers, EMPLOYEE_ID_ALIASES), [headers]);
 
-  const structural = useMemo(() => computeStructural(data), [data]);
-  const costs      = useMemo(() => rows.length ? computeCosts(rows, colMap, enabled) : null, [rows, colMap, enabled]);
-  const anomalous  = useMemo(() => (rows.length && grossCol) ? findAnomalous(data, rows, grossCol, nameCol, idCol) : [], [data, rows, grossCol, nameCol, idCol]);
-  const tenure     = useMemo(() => (tenureCol && rows.length) ? computeTenure(rows, tenureCol) : null, [rows, tenureCol]);
+  const structural   = useMemo(() => computeStructural(data), [data]);
+  const costs        = useMemo(() => rows.length ? computeCosts(rows, colMap, enabled) : null, [rows, colMap, enabled]);
+  const anomalous    = useMemo(() => (rows.length && grossCol) ? findAnomalous(data, rows, grossCol, nameCol, idCol) : [], [data, rows, grossCol, nameCol, idCol]);
+  const deptAnalysis = useMemo(() => computeDeptAnalysis(data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol), [data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol]);
 
   const toggleCost = (key: CostKey) => {
     setEnabled((prev) => {
@@ -608,40 +698,61 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props)
       </section>
 
       {/* ══════════════════════════════════════════════
-          3 · WORKFORCE
+          3 · DEPARTMENT ANALYSIS
       ══════════════════════════════════════════════ */}
       <section className={styles.section}>
-        <SectionHeader num="03" title="Workforce" sub="Unmanaged employees and tenure distribution." />
+        <SectionHeader
+          num="03"
+          title="Department Analysis"
+          sub="Headcount, open roles, span of control, depth, and cost per FTE grouped by department."
+        />
 
-        <div className={styles.pillRow}>
-          <StatPill label="Unmanaged (orphans)" value={structural.orphans.length} accent={structural.orphans.length > 0 ? 'red' : 'green'} />
-          {tenure && (
-            <>
-              <StatPill label="Avg tenure (yrs)" value={tenure.avg} />
-              <StatPill label="Median tenure (yrs)" value={tenure.med} />
-              <StatPill label="Min tenure" value={tenure.min} />
-              <StatPill label="Max tenure" value={tenure.max} />
-            </>
-          )}
-        </div>
-
-        {structural.orphans.length > 0 && (
-          <div className={styles.orphanList}>
-            {structural.orphans.map((o) => (
-              <div key={o.id} className={styles.orphanItem}>
-                <span className={styles.orphanName}>{o.name}</span>
-                <span className={styles.orphanRole}>{o.role}</span>
-                <span className={styles.orphanTag}>unmanaged</span>
+        <div className={styles.dataTable}>
+          <div className={styles.dtHead}>
+            <div className={styles.dtCell} style={{ flex: 2 }}>Department</div>
+            <div className={styles.dtCell}>Headcount</div>
+            <div className={styles.dtCell}>FTE</div>
+            <div className={styles.dtCell}>Open Roles</div>
+            <div className={styles.dtCell}>Avg Span</div>
+            <div className={styles.dtCell}>Max Depth</div>
+            <div className={styles.dtCell}>Cost / FTE</div>
+          </div>
+          <div className={styles.dtScrollBody}>
+            {deptAnalysis.map((row) => (
+              <div key={row.dept} className={styles.dtRow}>
+                <div className={styles.dtCell} style={{ flex: 2 }}>
+                  {row.dept === '(No Department)'
+                    ? <span className={styles.deptNone}>{row.dept}</span>
+                    : row.dept}
+                </div>
+                <div className={`${styles.dtCell} ${styles.bold}`}>{row.headcount}</div>
+                <div className={styles.dtCell}>{row.fte}</div>
+                <div className={styles.dtCell}>
+                  {row.openRoles > 0
+                    ? <>{row.openRoles} <span className={styles.pctLabel}>({row.openRolesPct}%)</span></>
+                    : 0}
+                </div>
+                <div className={styles.dtCell}>
+                  {row.avgSpan !== null ? row.avgSpan : <span className={styles.deptDash}>—</span>}
+                </div>
+                <div className={styles.dtCell}>{row.maxDepth}</div>
+                <div className={`${styles.dtCell} ${styles.bold}`}>
+                  {row.costPerFte !== null ? fmtNum(row.costPerFte) : <span className={styles.deptDash}>—</span>}
+                </div>
               </div>
             ))}
+            {deptAnalysis.length === 0 && (
+              <div className={styles.dtRow}>
+                <div className={styles.dtCell} style={{ color: 'var(--slate-light)', fontStyle: 'italic' }}>
+                  No department data available
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
-        {!tenure && file && !excelLoading && (
-          <p className={styles.hint}>No tenure column detected in the uploaded file.</p>
-        )}
         {!file && (
-          <p className={styles.hint}>Upload an Excel file to see tenure data.</p>
+          <p className={styles.hint}>Upload an Excel file to populate FTE and Cost / FTE columns.</p>
         )}
       </section>
 

@@ -12,14 +12,8 @@ import {
 } from "@/lib/workCapabilityDataset";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
-import styles from "./SkillsCapabilityView.module.css";
-
-type SuccessionTab =
-  | "overview"
-  | "critical-roles"
-  | "candidates"
-  | "conflicts"
-  | "role-detail";
+import shared from "./SkillsCapabilityView.module.css";
+import sp from "./SuccessionPlanningView.module.css";
 
 type SuccessionPlanningProps = {
   dataset: WorkCapabilityDataset | null;
@@ -30,19 +24,11 @@ type SuccessionPlanningProps = {
   onSuccessionCandidatesChange: (rows: SuccessionCandidateRecord[]) => void;
 };
 
-const tabs: Array<{ id: SuccessionTab; label: string }> = [
-  { id: "overview", label: "Overview" },
-  { id: "critical-roles", label: "Critical Roles" },
-  { id: "candidates", label: "Successor Candidates" },
-  { id: "conflicts", label: "Successor Load / Conflict" },
-  { id: "role-detail", label: "Role Detail" },
-];
-
 const statusOptions: SuccessionCandidateStatus[] = [
   "Suggested",
   "Selected",
-  "Rejected",
   "Backup",
+  "Rejected",
 ];
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -57,16 +43,75 @@ function money(value: number) {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-function riskClass(value: string) {
-  if (value === "High" || value === "High conflict" || value === "Capacity risk" || value === "Backfill risk") return styles.badgeRed;
-  if (value === "Medium" || value === "Attention" || value === "Review required") return styles.badgeOrange;
-  if (value === "Low" || value === "Ready Now") return styles.badgeGreen;
-  if (value === "Ready Soon" || value === "Backup") return styles.badgeAmber;
-  return styles.badgeNeutral;
+function riskBadge(value: string) {
+  if (
+    value === "High" ||
+    value === "High conflict" ||
+    value === "Capacity risk" ||
+    value === "Backfill risk"
+  )
+    return shared.badgeRed;
+  if (
+    value === "Medium" ||
+    value === "Attention" ||
+    value === "Review required"
+  )
+    return shared.badgeOrange;
+  if (value === "Low" || value === "Ready Now") return shared.badgeGreen;
+  if (value === "Ready Soon" || value === "Backup") return shared.badgeAmber;
+  return shared.badgeNeutral;
 }
 
-function candidatePairKey(targetEmployeeId: string, candidateEmployeeId: string) {
+function candidatePairKey(
+  targetEmployeeId: string,
+  candidateEmployeeId: string,
+) {
   return `${targetEmployeeId}::${candidateEmployeeId}`;
+}
+
+type ScoredCandidate = {
+  candidate: SuccessionCandidateMetric;
+  fitType: "Same dept" | "Cross-functional";
+  fitScore: number;
+};
+
+function parseGradeLevel(grade: string | null | undefined): number {
+  if (!grade) return 0;
+  const num = grade.match(/(\d+)/);
+  if (num) return parseInt(num[1], 10);
+  const letter = grade.trim().match(/^([A-Za-z])/);
+  if (letter) return letter[1].toUpperCase().charCodeAt(0) - 64;
+  return 0;
+}
+
+function scoreCandidateFit(
+  candidate: SuccessionCandidateMetric,
+  targetDept: string,
+  targetGrade: string,
+): ScoredCandidate {
+  let score = 0;
+  const sameDept =
+    !!candidate.department && candidate.department === targetDept;
+  score += sameDept ? 40 : 0;
+
+  const targetLevel = parseGradeLevel(targetGrade);
+  const candLevel = parseGradeLevel(candidate.grade);
+  if (targetLevel > 0 && candLevel > 0) {
+    const diff = Math.abs(targetLevel - candLevel);
+    if (diff === 0) score += 30;
+    else if (diff === 1) score += 22;
+    else if (diff === 2) score += 12;
+  }
+
+  score += (candidate.readinessScore / 100) * 20;
+  if (candidate.currentWorkloadPct > 100) score -= 5;
+  if (candidate.attentionFlag) score -= 5;
+
+  return {
+    candidate,
+    fitType: sameDept ? "Same dept" : "Cross-functional",
+    fitScore: score,
+  };
 }
 
 function toSuccessionRecord(
@@ -82,7 +127,9 @@ function toSuccessionRecord(
     rank: candidate.rank,
     status,
     selected_flag: selected,
-    already_selected_count: selected ? Math.max(1, candidate.alreadySelectedFor) : candidate.alreadySelectedFor,
+    already_selected_count: selected
+      ? Math.max(1, candidate.alreadySelectedFor)
+      : candidate.alreadySelectedFor,
     attention_flag: candidate.attentionFlag,
     attention_reason: candidate.attentionReason,
   };
@@ -96,12 +143,12 @@ export default function SuccessionPlanningView({
   successionCandidates,
   onSuccessionCandidatesChange,
 }: SuccessionPlanningProps) {
-  const [activeTab, setActiveTab] = useState<SuccessionTab>("overview");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [departmentFilter, setDepartmentFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
-  const [selectedTargetEmployeeId, setSelectedTargetEmployeeId] =
-    useState<string | null>(null);
+  const [selectedTargetEmployeeId, setSelectedTargetEmployeeId] = useState<
+    string | null
+  >(null);
+  const [cockpitSearch, setCockpitSearch] = useState("");
+  const [cockpitDeptFilter, setCockpitDeptFilter] = useState("");
 
   const portfolio = useMemo<SuccessionPlanningPortfolio | null>(() => {
     if (!dataset) return null;
@@ -112,13 +159,7 @@ export default function SuccessionPlanningView({
       columnMapping,
       successionCandidates,
     });
-  }, [
-    dataset,
-    orgRows,
-    orgEmployeeIdColumn,
-    columnMapping,
-    successionCandidates,
-  ]);
+  }, [dataset, orgRows, orgEmployeeIdColumn, columnMapping, successionCandidates]);
 
   const selectedRole = useMemo(() => {
     if (!portfolio) return null;
@@ -133,7 +174,7 @@ export default function SuccessionPlanningView({
 
   const filteredRoles = useMemo(() => {
     if (!portfolio) return [];
-    const query = searchQuery.trim().toLowerCase();
+    const query = cockpitSearch.trim().toLowerCase();
     return portfolio.criticalRoles.filter((role) => {
       const matchesSearch =
         !query ||
@@ -141,18 +182,22 @@ export default function SuccessionPlanningView({
           .join(" ")
           .toLowerCase()
           .includes(query);
-      const matchesDepartment =
-        !departmentFilter || role.department === departmentFilter;
-      const matchesRisk = !riskFilter || role.successionRisk === riskFilter;
-      return matchesSearch && matchesDepartment && matchesRisk;
+      const matchesDept =
+        !cockpitDeptFilter || role.department === cockpitDeptFilter;
+      const matchesRisk =
+        !riskFilter || role.successionRisk === riskFilter;
+      return matchesSearch && matchesDept && matchesRisk;
     });
-  }, [portfolio, searchQuery, departmentFilter, riskFilter]);
+  }, [portfolio, cockpitSearch, cockpitDeptFilter, riskFilter]);
 
-  const selectedCandidates = useMemo(() => {
+  const selectedCandidates = useMemo((): ScoredCandidate[] => {
     if (!portfolio || !selectedRole) return [];
-    return portfolio.candidates.filter(
-      (candidate) => candidate.targetEmployeeId === selectedRole.employeeId,
-    );
+    return portfolio.candidates
+      .filter((c) => c.targetEmployeeId === selectedRole.employeeId)
+      .map((c) =>
+        scoreCandidateFit(c, selectedRole.department, selectedRole.grade),
+      )
+      .sort((a, b) => b.fitScore - a.fitScore);
   }, [portfolio, selectedRole]);
 
   const updateCandidateStatus = (
@@ -166,11 +211,9 @@ export default function SuccessionPlanningView({
     const nextRecord = toSuccessionRecord(candidate, status);
     const next = [
       ...successionCandidates.filter(
-        (record) =>
-          candidatePairKey(
-            record.target_employee_id,
-            record.candidate_employee_id,
-          ) !== key,
+        (r) =>
+          candidatePairKey(r.target_employee_id, r.candidate_employee_id) !==
+          key,
       ),
       nextRecord,
     ];
@@ -179,47 +222,69 @@ export default function SuccessionPlanningView({
 
   if (!portfolio) {
     return (
-      <div className={styles.centerState}>
-        <p>Load Work & Capability datasets to view succession planning.</p>
+      <div className={shared.centerState}>
+        <p>Load Work &amp; Capability datasets to view succession planning.</p>
       </div>
     );
   }
 
+  const multipleSuccessors = Math.max(
+    0,
+    portfolio.kpis.criticalRoles -
+      portfolio.kpis.rolesWithoutSuccessor -
+      portfolio.kpis.rolesWithOneSuccessor,
+  );
+
+  const kpis = [
+    {
+      label: "Critical roles",
+      value: portfolio.kpis.criticalRoles,
+      tone: shared.metricBlue,
+    },
+    {
+      label: "Without successor",
+      value: portfolio.kpis.rolesWithoutSuccessor,
+      tone: shared.metricRed,
+    },
+    {
+      label: "Avg readiness",
+      value: pct(portfolio.kpis.averageSuccessorReadiness),
+      tone: shared.metricGreen,
+    },
+    {
+      label: "High-risk roles",
+      value: portfolio.kpis.highRiskRoles,
+      tone: shared.metricRed,
+    },
+    {
+      label: "Critical activity dep.",
+      value: portfolio.kpis.criticalActivityDependency,
+      tone: shared.metricNeutral,
+    },
+    {
+      label: "Conflict flags",
+      value: portfolio.kpis.duplicateSuccessorFlags,
+      tone: shared.metricPurple,
+    },
+  ];
+
   return (
-    <div className={styles.wrap}>
-      <header className={styles.header}>
+    <div className={shared.wrap}>
+      {/* Header */}
+      <header className={shared.header}>
         <div>
-          <div className={styles.eyebrow}>Work & Capability Analysis</div>
-          <h2 className={styles.title}>Succession Planning</h2>
-          <p className={styles.subtitle}>
-            Deterministic critical-role coverage, successor readiness, workload
-            conflicts, and selected-candidate attention flags.
+          <div className={shared.eyebrow}>Work &amp; Capability Analysis</div>
+          <h2 className={shared.title}>Succession Planning</h2>
+          <p className={shared.subtitle}>
+            Identify exposed critical roles, assess successor readiness, and
+            flag capacity or coverage conflicts.
           </p>
         </div>
-        <div className={styles.controls}>
-          <input
-            className={styles.input}
-            type="search"
-            placeholder="Search role, incumbent, department..."
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
+        <div className={shared.controls}>
           <select
-            className={styles.select}
-            value={departmentFilter}
-            onChange={(event) => setDepartmentFilter(event.target.value)}
-          >
-            <option value="">All departments</option>
-            {portfolio.filterOptions.departments.map((department) => (
-              <option key={department} value={department}>
-                {department}
-              </option>
-            ))}
-          </select>
-          <select
-            className={styles.select}
+            className={shared.select}
             value={riskFilter}
-            onChange={(event) => setRiskFilter(event.target.value)}
+            onChange={(e) => setRiskFilter(e.target.value)}
           >
             <option value="">All risks</option>
             {portfolio.filterOptions.riskStatuses.map((risk) => (
@@ -228,530 +293,643 @@ export default function SuccessionPlanningView({
               </option>
             ))}
           </select>
-          <button className={styles.secondaryButton} type="button">
+          <button className={shared.secondaryButton} type="button">
             Export
           </button>
         </div>
       </header>
 
-      <KpiStrip portfolio={portfolio} />
+      {/* KPI Strip */}
+      <section className={shared.kpiGrid}>
+        {kpis.map(({ label, value, tone }) => (
+          <article className={shared.kpiCard} key={label}>
+            <div className={cx(shared.kpiValue, tone)}>{value}</div>
+            <div className={shared.kpiLabel}>{label}</div>
+          </article>
+        ))}
+      </section>
 
-      <section className={styles.panel}>
-        <nav className={styles.tabs} aria-label="Succession planning views">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={cx(
-                styles.tab,
-                activeTab === tab.id && styles.tabActive,
+      {/* ── Section 1: Succession Risk Overview ── */}
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Succession Risk Overview</h3>
+            <p className={sp.sectionSubtitle}>
+              Risk concentration by department, readiness pool, and coverage
+              status.
+            </p>
+          </div>
+        </div>
+        <div className={sp.sectionBody}>
+          <div className={sp.overviewCols}>
+            <div className={sp.overviewCard}>
+              <RiskByDepartment portfolio={portfolio} />
+            </div>
+            <div className={sp.overviewCard}>
+              <ReadinessPool portfolio={portfolio} />
+            </div>
+          </div>
+          <p className={sp.coverageSectionLabel}>Coverage Status</p>
+          <div className={sp.coverageGrid}>
+            <div className={sp.coverageCard}>
+              <div className={cx(sp.coverageValue, shared.metricRed)}>
+                {portfolio.kpis.rolesWithoutSuccessor}
+              </div>
+              <span className={sp.coverageLabel}>No Successor</span>
+            </div>
+            <div className={sp.coverageCard}>
+              <div className={cx(sp.coverageValue, shared.metricOrange)}>
+                {portfolio.kpis.rolesWithOneSuccessor}
+              </div>
+              <span className={sp.coverageLabel}>One Successor</span>
+            </div>
+            <div className={sp.coverageCard}>
+              <div className={cx(sp.coverageValue, shared.metricGreen)}>
+                {multipleSuccessors}
+              </div>
+              <span className={sp.coverageLabel}>Multiple Successors</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Section 2: Critical Role Cockpit ── */}
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Critical Role Cockpit</h3>
+            <p className={sp.sectionSubtitle}>
+              Select a role to view its risk profile and succession details.
+            </p>
+          </div>
+        </div>
+        <div className={sp.cockpit}>
+          {/* Left: filterable role list */}
+          <div className={sp.cockpitLeft}>
+            <div className={sp.cockpitFilters}>
+              <input
+                className={shared.input}
+                style={{ flex: "none", width: "100%" }}
+                type="search"
+                placeholder="Search role or incumbent…"
+                value={cockpitSearch}
+                onChange={(e) => setCockpitSearch(e.target.value)}
+              />
+              <select
+                className={shared.select}
+                style={{ flex: "none", width: "100%" }}
+                value={cockpitDeptFilter}
+                onChange={(e) => setCockpitDeptFilter(e.target.value)}
+              >
+                <option value="">All departments</option>
+                {portfolio.filterOptions.departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={sp.cockpitList}>
+              {filteredRoles.map((role) => (
+                <div
+                  key={role.employeeId}
+                  className={cx(
+                    sp.roleRow,
+                    role.employeeId === selectedRole?.employeeId &&
+                      sp.roleRowSelected,
+                  )}
+                  onClick={() => setSelectedTargetEmployeeId(role.employeeId)}
+                >
+                  <div>
+                    <div className={sp.roleRowName}>{role.employeeName}</div>
+                    <div className={sp.roleRowMeta}>
+                      {role.role || "—"} · {role.department}
+                    </div>
+                  </div>
+                  <span
+                    className={cx(shared.badge, riskBadge(role.successionRisk))}
+                  >
+                    {role.successionRisk}
+                  </span>
+                </div>
+              ))}
+              {filteredRoles.length === 0 && (
+                <div
+                  style={{
+                    padding: "20px 14px",
+                    color: "var(--slate-light)",
+                    fontSize: 12,
+                  }}
+                >
+                  No roles match current filters.
+                </div>
               )}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
+            </div>
+          </div>
+
+          {/* Right: selected role profile */}
+          <div className={sp.cockpitRight}>
+            {selectedRole ? (
+              <RoleProfile role={selectedRole} />
+            ) : (
+              <div className={sp.emptyProfile}>
+                Select a critical role from the list.
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Section 3: Successor Candidates ── */}
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Successor Candidates</h3>
+            <p className={sp.sectionSubtitle}>
+              {selectedRole
+                ? `Ranked candidates for ${selectedRole.employeeName}${selectedRole.role ? ` · ${selectedRole.role}` : ""}`
+                : "Select a role in the cockpit above to view candidates."}
+            </p>
+          </div>
+        </div>
+        <div className={sp.sectionBody}>
+          {selectedRole ? (
+            <CompactCandidateTable
+              candidates={selectedCandidates}
+              onStatusChange={updateCandidateStatus}
+            />
+          ) : (
+            <p
+              style={{ margin: 0, color: "var(--slate-light)", fontSize: 12 }}
             >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-        <div className={styles.panelBody}>
-          {activeTab === "overview" && (
-            <OverviewTab portfolio={portfolio} roles={filteredRoles} />
+              Select a critical role to view candidates.
+            </p>
           )}
-          {activeTab === "critical-roles" && (
-            <CriticalRolesTab
-              roles={filteredRoles}
-              onSelect={(employeeId) => {
-                setSelectedTargetEmployeeId(employeeId);
-                setActiveTab("role-detail");
-              }}
-            />
-          )}
-          {activeTab === "candidates" && selectedRole && (
-            <CandidatesTab
-              roles={portfolio.criticalRoles}
-              selectedRole={selectedRole}
-              candidates={selectedCandidates}
-              onRoleChange={setSelectedTargetEmployeeId}
-              onStatusChange={updateCandidateStatus}
-            />
-          )}
-          {activeTab === "conflicts" && (
-            <ConflictTab loads={portfolio.successorLoads} />
-          )}
-          {activeTab === "role-detail" && selectedRole && (
-            <RoleDetailTab
-              role={selectedRole}
-              candidates={selectedCandidates}
-              onStatusChange={updateCandidateStatus}
-            />
-          )}
+        </div>
+      </section>
+
+      {/* ── Section 4: Attention Flags ── */}
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Attention Flags / Conflicts</h3>
+            <p className={sp.sectionSubtitle}>
+              Coverage gaps, workload risk, and selected-candidate conflicts.
+            </p>
+          </div>
+        </div>
+        <div className={sp.sectionBody}>
+          <AttentionFlags portfolio={portfolio} />
         </div>
       </section>
     </div>
   );
 }
 
-function KpiStrip({ portfolio }: { portfolio: SuccessionPlanningPortfolio }) {
-  const kpis = [
-    ["Critical roles", portfolio.kpis.criticalRoles, styles.metricBlue],
-    ["Without successor", portfolio.kpis.rolesWithoutSuccessor, styles.metricRed],
-    ["Only one successor", portfolio.kpis.rolesWithOneSuccessor, styles.metricOrange],
-    ["Avg readiness", pct(portfolio.kpis.averageSuccessorReadiness), styles.metricGreen],
-    ["High-risk roles", portfolio.kpis.highRiskRoles, styles.metricRed],
-    ["Duplicate flags", portfolio.kpis.duplicateSuccessorFlags, styles.metricPurple],
-    ["Critical activity dep.", portfolio.kpis.criticalActivityDependency, styles.metricNeutral],
-  ];
+/* ── Sub-components ── */
 
-  return (
-    <section className={styles.kpiGrid}>
-      {kpis.map(([label, value, tone]) => (
-        <article className={styles.kpiCard} key={String(label)}>
-          <div className={cx(styles.kpiValue, String(tone))}>{value}</div>
-          <div className={styles.kpiLabel}>{label}</div>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function OverviewTab({
+function RiskByDepartment({
   portfolio,
-  roles,
 }: {
   portfolio: SuccessionPlanningPortfolio;
-  roles: SuccessionCriticalRoleMetric[];
 }) {
   const departments = portfolio.filterOptions.departments;
   const maxHighRisk = Math.max(
     1,
     ...departments.map(
-      (department) =>
+      (d) =>
         portfolio.criticalRoles.filter(
-          (role) =>
-            role.department === department && role.successionRisk === "High",
+          (r) => r.department === d && r.successionRisk === "High",
         ).length,
     ),
   );
-  const readinessBuckets = [
-    ["Ready Now", portfolio.candidates.filter((row) => row.readinessScore >= 85).length],
-    ["Ready Soon", portfolio.candidates.filter((row) => row.readinessScore >= 70 && row.readinessScore < 85).length],
-    ["Development", portfolio.candidates.filter((row) => row.readinessScore >= 50 && row.readinessScore < 70).length],
-    ["Not Recommended", portfolio.candidates.filter((row) => row.readinessScore < 50).length],
+
+  return (
+    <div>
+      <p className={sp.miniLabel}>Succession Risk by Department</p>
+      <div className={shared.barList}>
+        {departments.map((d) => {
+          const count = portfolio.criticalRoles.filter(
+            (r) => r.department === d && r.successionRisk === "High",
+          ).length;
+          return (
+            <div key={d} className={shared.metricBar}>
+              <span title={d}>{d}</span>
+              <div className={shared.barTrack}>
+                <div
+                  className={cx(shared.barFill, shared.barRed)}
+                  style={{
+                    width: `${Math.max(2, (count / maxHighRisk) * 100)}%`,
+                  }}
+                />
+              </div>
+              <strong>{count}</strong>
+            </div>
+          );
+        })}
+        {departments.length === 0 && (
+          <p style={{ margin: 0, fontSize: 12, color: "var(--slate-light)" }}>
+            No department data.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReadinessPool({
+  portfolio,
+}: {
+  portfolio: SuccessionPlanningPortfolio;
+}) {
+  const buckets = [
+    {
+      label: "Ready Now",
+      count: portfolio.candidates.filter((r) => r.readinessScore >= 85).length,
+      tone: shared.metricGreen,
+    },
+    {
+      label: "Ready Soon",
+      count: portfolio.candidates.filter(
+        (r) => r.readinessScore >= 70 && r.readinessScore < 85,
+      ).length,
+      tone: shared.metricAmber,
+    },
+    {
+      label: "Development",
+      count: portfolio.candidates.filter(
+        (r) => r.readinessScore >= 50 && r.readinessScore < 70,
+      ).length,
+      tone: shared.metricOrange,
+    },
+  ];
+  const notRecommended = portfolio.candidates.filter(
+    (r) => r.readinessScore < 50,
+  ).length;
+
+  return (
+    <div>
+      <p className={sp.miniLabel}>Successor Readiness Pool</p>
+      <div className={sp.threeCol}>
+        {buckets.map(({ label, count, tone }) => (
+          <div key={label} className={shared.distributionCard}>
+            <strong className={tone}>{count}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+      {notRecommended > 0 && (
+        <p
+          style={{
+            margin: "10px 0 0",
+            fontSize: 11,
+            color: "var(--slate-light)",
+          }}
+        >
+          +{notRecommended} candidate{notRecommended > 1 ? "s" : ""} not
+          recommended (readiness &lt; 50%)
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RoleProfile({ role }: { role: SuccessionCriticalRoleMetric }) {
+  const metrics = [
+    { label: "Department", value: role.department || "—" },
+    { label: "Grade", value: role.grade || "—" },
+    { label: "Span", value: String(role.span) },
+    { label: "Risk", value: role.successionRisk },
+    { label: "Loaded Cost", value: `$${money(role.loadedCost)}` },
+    { label: "Successors", value: String(role.successorCount) },
+    { label: "Best Readiness", value: pct(role.bestSuccessorReadiness) },
+    {
+      label: "Critical Activities",
+      value: String(role.criticalActivitiesOwned),
+    },
+    { label: "Critical Skills", value: String(role.requiredCriticalSkills) },
   ];
 
   return (
-    <div className={styles.overviewGrid}>
-      <article className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h3>Succession Risk by Department</h3>
-        </div>
-        <div className={styles.barList}>
-          {departments.map((department) => {
-            const count = portfolio.criticalRoles.filter(
-              (role) =>
-                role.department === department && role.successionRisk === "High",
-            ).length;
-            return (
-              <MetricBar
-                key={department}
-                label={department}
-                value={count}
-                width={(count / maxHighRisk) * 100}
-                tone="red"
-              />
-            );
-          })}
-        </div>
-      </article>
-      <article className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h3>Readiness Distribution</h3>
-        </div>
-        <div className={styles.distributionGrid}>
-          {readinessBuckets.map(([label, count], index) => (
-            <div className={styles.distributionCard} key={String(label)}>
-              <strong
-                className={cx(
-                  index === 0 && styles.metricGreen,
-                  index === 1 && styles.metricAmber,
-                  index === 2 && styles.metricOrange,
-                  index === 3 && styles.metricRed,
-                )}
-              >
-                {count}
-              </strong>
-              <span>{label}</span>
-            </div>
-          ))}
-        </div>
-      </article>
-      <article className={cx(styles.card, styles.fullWidth)}>
-        <div className={styles.cardHeader}>
-          <h3>Top Succession Risks</h3>
-          <span>Critical roles ordered by risk and criticality score.</span>
-        </div>
-        <RoleTable roles={roles.slice(0, 10)} />
-      </article>
-    </div>
-  );
-}
-
-function MetricBar({
-  label,
-  value,
-  width,
-  tone,
-}: {
-  label: string;
-  value: number;
-  width: number;
-  tone: "red" | "green";
-}) {
-  return (
-    <div className={styles.metricBar}>
-      <span title={label}>{label}</span>
-      <div className={styles.barTrack}>
-        <div
-          className={cx(
-            styles.barFill,
-            tone === "red" ? styles.barRed : styles.barGreen,
-          )}
-          style={{ width: `${Math.max(2, Math.min(100, width))}%` }}
-        />
+    <div>
+      <h3 className={sp.profileName}>{role.employeeName}</h3>
+      <p className={sp.profileRole}>{role.role || "—"}</p>
+      <div className={sp.profileGrid}>
+        {metrics.map(({ label, value }) => (
+          <div key={label} className={sp.profileMetric}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
       </div>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function CriticalRolesTab({
-  roles,
-  onSelect,
-}: {
-  roles: SuccessionCriticalRoleMetric[];
-  onSelect: (employeeId: string) => void;
-}) {
-  return (
-    <article className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h3>Critical Roles</h3>
-        <span>Select a row to open role detail.</span>
-      </div>
-      <RoleTable roles={roles} onSelect={onSelect} />
-    </article>
-  );
-}
-
-function RoleTable({
-  roles,
-  onSelect,
-}: {
-  roles: SuccessionCriticalRoleMetric[];
-  onSelect?: (employeeId: string) => void;
-}) {
-  return (
-    <div className={styles.tableScroll}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th>Role / incumbent</th>
-            <th>Department</th>
-            <th>Grade</th>
-            <th>Span</th>
-            <th>Loaded cost</th>
-            <th>Critical activities</th>
-            <th>Critical skills</th>
-            <th>Successors</th>
-            <th>Best readiness</th>
-            <th>Risk</th>
-          </tr>
-        </thead>
-        <tbody>
-          {roles.map((role) => (
-            <tr
-              key={role.employeeId}
-              className={onSelect ? styles.clickRow : undefined}
-              onClick={() => onSelect?.(role.employeeId)}
-            >
-              <td>
-                <strong>{role.employeeName}</strong>
-                <br />
-                {role.role || "-"}
-              </td>
-              <td>{role.department || "-"}</td>
-              <td>{role.grade || "-"}</td>
-              <td>{role.span}</td>
-              <td>{money(role.loadedCost)}</td>
-              <td>{role.criticalActivitiesOwned}</td>
-              <td>{role.requiredCriticalSkills}</td>
-              <td>{role.successorCount}</td>
-              <td>{pct(role.bestSuccessorReadiness)}</td>
-              <td>
-                <span className={cx(styles.badge, riskClass(role.successionRisk))}>
-                  {role.successionRisk}
-                </span>
-              </td>
-            </tr>
-          ))}
-          {roles.length === 0 && (
-            <tr>
-              <td colSpan={10}>No critical roles match current filters.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function CandidatesTab({
-  roles,
-  selectedRole,
-  candidates,
-  onRoleChange,
-  onStatusChange,
-}: {
-  roles: SuccessionCriticalRoleMetric[];
-  selectedRole: SuccessionCriticalRoleMetric;
-  candidates: SuccessionCandidateMetric[];
-  onRoleChange: (employeeId: string) => void;
-  onStatusChange: (
-    candidate: SuccessionCandidateMetric,
-    status: SuccessionCandidateStatus,
-  ) => void;
-}) {
-  return (
-    <article className={styles.card}>
-      <div className={styles.cardHeaderRow}>
-        <div>
-          <h3>Successor Candidates</h3>
-          <span>Ranked deterministically by required skill readiness.</span>
-        </div>
-        <select
-          className={styles.select}
-          value={selectedRole.employeeId}
-          onChange={(event) => onRoleChange(event.target.value)}
-        >
-          {roles.map((role) => (
-            <option key={role.employeeId} value={role.employeeId}>
-              {role.employeeName} - {role.role}
-            </option>
-          ))}
-        </select>
-      </div>
-      <CandidateTable candidates={candidates} onStatusChange={onStatusChange} />
-    </article>
-  );
-}
-
-function CandidateTable({
-  candidates,
-  onStatusChange,
-}: {
-  candidates: SuccessionCandidateMetric[];
-  onStatusChange: (
-    candidate: SuccessionCandidateMetric,
-    status: SuccessionCandidateStatus,
-  ) => void;
-}) {
-  return (
-    <div className={styles.tableScroll}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th>Candidate</th>
-            <th>Current role</th>
-            <th>Department</th>
-            <th>Grade</th>
-            <th>Readiness</th>
-            <th>Covered</th>
-            <th>Minor</th>
-            <th>Major</th>
-            <th>Critical</th>
-            <th>Workload</th>
-            <th>Selected for</th>
-            <th>Status</th>
-            <th>Attention</th>
-          </tr>
-        </thead>
-        <tbody>
-          {candidates.slice(0, 100).map((candidate) => (
-            <tr
-              key={candidatePairKey(
-                candidate.targetEmployeeId,
-                candidate.candidateEmployeeId,
-              )}
-            >
-              <td>{candidate.candidateName}</td>
-              <td>{candidate.currentRole || "-"}</td>
-              <td>{candidate.department || "-"}</td>
-              <td>{candidate.grade || "-"}</td>
-              <td>{pct(candidate.readinessScore)}</td>
-              <td>{candidate.coveredSkills}</td>
-              <td>{candidate.minorGaps}</td>
-              <td>{candidate.majorGaps}</td>
-              <td>{candidate.criticalGaps}</td>
-              <td>{pct(candidate.currentWorkloadPct)}</td>
-              <td>{candidate.alreadySelectedFor}</td>
-              <td>
-                <select
-                  className={styles.select}
-                  value={candidate.status}
-                  onChange={(event) =>
-                    onStatusChange(
-                      candidate,
-                      event.target.value as SuccessionCandidateStatus,
-                    )
-                  }
-                >
-                  {statusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                {candidate.attentionFlag ? candidate.attentionReason || "Review" : "-"}
-              </td>
-            </tr>
-          ))}
-          {candidates.length === 0 && (
-            <tr>
-              <td colSpan={13}>No candidates found for this role.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ConflictTab({
-  loads,
-}: {
-  loads: SuccessionPlanningPortfolio["successorLoads"];
-}) {
-  return (
-    <article className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h3>Successor Load / Conflict</h3>
-        <span>Shows candidates explicitly selected or marked as backup.</span>
-      </div>
-      <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Candidate</th>
-              <th>Selected target roles</th>
-              <th>Count</th>
-              <th>Avg readiness</th>
-              <th>Workload</th>
-              <th>Conflict risk</th>
-              <th>Recommended action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loads.map((load) => (
-              <tr key={load.candidateEmployeeId}>
-                <td>{load.candidateName}</td>
-                <td>{load.selectedTargetRoles.join("; ")}</td>
-                <td>{load.selectedTargetCount}</td>
-                <td>{pct(load.averageReadiness)}</td>
-                <td>{pct(load.currentWorkloadPct)}</td>
-                <td>
-                  <span className={cx(styles.badge, riskClass(load.conflictRisk))}>
-                    {load.conflictRisk}
-                  </span>
-                </td>
-                <td>{load.recommendedAction}</td>
-              </tr>
-            ))}
-            {loads.length === 0 && (
-              <tr>
-                <td colSpan={7}>No selected successor conflicts yet.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </article>
-  );
-}
-
-function RoleDetailTab({
-  role,
-  candidates,
-  onStatusChange,
-}: {
-  role: SuccessionCriticalRoleMetric;
-  candidates: SuccessionCandidateMetric[];
-  onStatusChange: (
-    candidate: SuccessionCandidateMetric,
-    status: SuccessionCandidateStatus,
-  ) => void;
-}) {
-  return (
-    <div className={styles.overviewGrid}>
-      <article className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h3>{role.employeeName}</h3>
-          <span>{role.role}</span>
-        </div>
-        <div className={styles.distributionGrid}>
-          <MiniMetric label="Department" value={role.department || "-"} />
-          <MiniMetric label="Grade" value={role.grade || "-"} />
-          <MiniMetric label="Span" value={role.span} />
-          <MiniMetric label="Risk" value={role.successionRisk} />
-        </div>
-      </article>
-      <article className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h3>Critical Activity Dependency</h3>
-        </div>
-        <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Activity</th>
-                <th>Criticality</th>
-                <th>Time</th>
-                <th>Accountability</th>
-              </tr>
-            </thead>
-            <tbody>
-              {role.criticalActivityDetails.map((activity) => (
-                <tr key={activity.activityId}>
-                  <td>{activity.activityName}</td>
-                  <td>{activity.criticality}</td>
-                  <td>{pct(activity.timeAllocationPct)}</td>
-                  <td>{activity.accountability}</td>
-                </tr>
-              ))}
-              {role.criticalActivityDetails.length === 0 && (
+      {role.criticalActivityDetails.length > 0 && (
+        <>
+          <p className={sp.profileActivitiesTitle}>
+            Critical Activity Dependencies
+          </p>
+          <div className={shared.tableScroll} style={{ maxHeight: 160 }}>
+            <table className={shared.table}>
+              <thead>
                 <tr>
-                  <td colSpan={4}>No high-criticality owned activities.</td>
+                  <th>Activity</th>
+                  <th>Criticality</th>
+                  <th>Time %</th>
+                  <th>Accountability</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </article>
-      <article className={cx(styles.card, styles.fullWidth)}>
-        <div className={styles.cardHeader}>
-          <h3>Ranked Successor Candidates</h3>
-          <span>Select, backup, or reject candidates for this role.</span>
-        </div>
-        <CandidateTable candidates={candidates} onStatusChange={onStatusChange} />
-      </article>
+              </thead>
+              <tbody>
+                {role.criticalActivityDetails.map((a) => (
+                  <tr key={a.activityId}>
+                    <td>{a.activityName}</td>
+                    <td>{a.criticality}</td>
+                    <td>{pct(a.timeAllocationPct)}</td>
+                    <td>{a.accountability}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: string | number }) {
+const DEFAULT_CANDIDATE_SHOW = 8;
+
+function CandidateRows({
+  items,
+  onStatusChange,
+}: {
+  items: ScoredCandidate[];
+  onStatusChange: (
+    candidate: SuccessionCandidateMetric,
+    status: SuccessionCandidateStatus,
+  ) => void;
+}) {
   return (
-    <div className={styles.miniMetric}>
-      <strong>{value}</strong>
-      <span>{label}</span>
+    <>
+      {items.map(({ candidate: c }) => (
+        <tr key={candidatePairKey(c.targetEmployeeId, c.candidateEmployeeId)}>
+          <td>
+            <strong>{c.candidateName}</strong>
+          </td>
+          <td>{c.currentRole || "—"}</td>
+          <td>{c.department || "—"}</td>
+          <td>{c.grade || "—"}</td>
+          <td>
+            <span className={cx(shared.badge, riskBadge(c.readinessStatus))}>
+              {pct(c.readinessScore)}
+            </span>
+          </td>
+          <td>{pct(c.currentWorkloadPct)}</td>
+          <td>
+            <select
+              className={shared.select}
+              value={c.status}
+              onChange={(e) =>
+                onStatusChange(c, e.target.value as SuccessionCandidateStatus)
+              }
+            >
+              {statusOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </td>
+          <td>
+            {c.attentionFlag ? (
+              <span
+                className={cx(shared.badge, shared.badgeOrange)}
+                title={c.attentionReason || "Review"}
+              >
+                {c.attentionReason || "Review"}
+              </span>
+            ) : (
+              "—"
+            )}
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+const candidateTableHead = (
+  <thead>
+    <tr>
+      <th>Candidate</th>
+      <th>Current Role</th>
+      <th>Department</th>
+      <th>Grade</th>
+      <th>Readiness</th>
+      <th>Workload</th>
+      <th>Status</th>
+      <th>Attention</th>
+    </tr>
+  </thead>
+);
+
+function CompactCandidateTable({
+  candidates,
+  onStatusChange,
+}: {
+  candidates: ScoredCandidate[];
+  onStatusChange: (
+    candidate: SuccessionCandidateMetric,
+    status: SuccessionCandidateStatus,
+  ) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+
+  if (candidates.length === 0) {
+    return (
+      <p style={{ margin: 0, color: "var(--slate-light)", fontSize: 12 }}>
+        No candidates identified for this role.
+      </p>
+    );
+  }
+
+  const sameDept = candidates.filter((c) => c.fitType === "Same dept");
+  const crossFunctional = candidates.filter(
+    (c) => c.fitType === "Cross-functional",
+  );
+  const visibleSameDept = showAll
+    ? sameDept
+    : sameDept.slice(0, DEFAULT_CANDIDATE_SHOW);
+
+  return (
+    <>
+      <p className={sp.candidateHelper}>
+        Candidates ranked by department fit, grade proximity, readiness, and
+        workload capacity.
+      </p>
+
+      {sameDept.length === 0 && (
+        <p className={sp.noSameDeptNote}>
+          No same-department successors found. Showing cross-functional
+          alternatives.
+        </p>
+      )}
+
+      {sameDept.length > 0 && (
+        <>
+          <div className={shared.tableScroll}>
+            <table className={shared.table}>
+              {candidateTableHead}
+              <tbody>
+                <CandidateRows
+                  items={visibleSameDept}
+                  onStatusChange={onStatusChange}
+                />
+              </tbody>
+            </table>
+          </div>
+          {sameDept.length > DEFAULT_CANDIDATE_SHOW && !showAll && (
+            <button
+              type="button"
+              className={sp.showMoreBtn}
+              onClick={() => setShowAll(true)}
+            >
+              View {sameDept.length - DEFAULT_CANDIDATE_SHOW} more same-dept
+              candidate{sameDept.length - DEFAULT_CANDIDATE_SHOW > 1 ? "s" : ""}
+            </button>
+          )}
+        </>
+      )}
+
+      {crossFunctional.length > 0 && (
+        <details
+          className={sp.crossSection}
+          style={{ marginTop: sameDept.length > 0 ? 14 : 0 }}
+          open={sameDept.length === 0}
+        >
+          <summary className={sp.crossSummary}>
+            Cross-functional alternatives ({crossFunctional.length})
+          </summary>
+          <div className={sp.crossContent}>
+            <div className={shared.tableScroll}>
+              <table className={shared.table}>
+                {candidateTableHead}
+                <tbody>
+                  <CandidateRows
+                    items={crossFunctional}
+                    onStatusChange={onStatusChange}
+                  />
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      )}
+    </>
+  );
+}
+
+function AttentionFlags({
+  portfolio,
+}: {
+  portfolio: SuccessionPlanningPortfolio;
+}) {
+  type FlagSeverity = "red" | "orange" | "amber";
+  const flags: Array<{ severity: FlagSeverity; message: string }> = [];
+
+  // Roles with no successor
+  if (portfolio.kpis.rolesWithoutSuccessor > 0) {
+    const n = portfolio.kpis.rolesWithoutSuccessor;
+    flags.push({
+      severity: "red",
+      message: `${n} critical role${n > 1 ? "s" : ""} ${n > 1 ? "have" : "has"} no identified successor — immediate succession risk.`,
+    });
+  }
+
+  // High-risk roles with no ready-now candidate
+  const noReadyNow = portfolio.criticalRoles.filter(
+    (r) => r.successionRisk === "High" && r.bestSuccessorReadiness < 85,
+  ).length;
+  if (noReadyNow > 0) {
+    flags.push({
+      severity: "orange",
+      message: `${noReadyNow} high-risk role${noReadyNow > 1 ? "s" : ""} ${noReadyNow > 1 ? "have" : "has"} no ready-now successor (readiness ≥ 85%).`,
+    });
+  }
+
+  // Roles with successors but low best readiness
+  const lowReadiness = portfolio.criticalRoles.filter(
+    (r) => r.successorCount > 0 && r.bestSuccessorReadiness < 50,
+  ).length;
+  if (lowReadiness > 0) {
+    flags.push({
+      severity: "orange",
+      message: `${lowReadiness} critical role${lowReadiness > 1 ? "s" : ""} ${lowReadiness > 1 ? "have" : "has"} successors but best readiness below 50% — active development needed.`,
+    });
+  }
+
+  // Per-candidate conflict loads
+  for (const load of portfolio.successorLoads) {
+    if (
+      load.conflictRisk === "High conflict" ||
+      load.conflictRisk === "Capacity risk"
+    ) {
+      flags.push({
+        severity: "red",
+        message: `${load.candidateName} is selected for ${load.selectedTargetCount} roles — ${load.recommendedAction}`,
+      });
+    } else if (
+      load.conflictRisk === "Attention" ||
+      load.conflictRisk === "Backfill risk"
+    ) {
+      flags.push({
+        severity: "orange",
+        message: `${load.candidateName} — ${load.recommendedAction}`,
+      });
+    } else if (load.conflictRisk === "Review required") {
+      flags.push({
+        severity: "amber",
+        message: `${load.candidateName} — ${load.recommendedAction}`,
+      });
+    }
+  }
+
+  // Critical activity dependency
+  if (portfolio.kpis.criticalActivityDependency > 0) {
+    const n = portfolio.kpis.criticalActivityDependency;
+    flags.push({
+      severity: "amber",
+      message: `${n} role${n > 1 ? "s" : ""} own high-criticality activities with no clear succession coverage plan.`,
+    });
+  }
+
+  if (flags.length === 0) {
+    return (
+      <p className={sp.flagEmpty}>
+        No selected successor conflicts detected.
+        <br />
+        Select candidates to monitor duplicate coverage and workload risk.
+      </p>
+    );
+  }
+
+  const dotClass: Record<FlagSeverity, string> = {
+    red: sp.dotRed,
+    orange: sp.dotOrange,
+    amber: sp.dotAmber,
+  };
+  const itemClass: Record<FlagSeverity, string> = {
+    red: sp.flagRed,
+    orange: sp.flagOrange,
+    amber: sp.flagAmber,
+  };
+
+  return (
+    <div className={sp.flagList}>
+      {flags.map((flag, i) => (
+        <div key={i} className={cx(sp.flagItem, itemClass[flag.severity])}>
+          <div className={cx(sp.flagDot, dotClass[flag.severity])} />
+          <span>{flag.message}</span>
+        </div>
+      ))}
     </div>
   );
 }
