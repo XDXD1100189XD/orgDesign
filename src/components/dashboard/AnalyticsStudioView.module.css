@@ -10,6 +10,71 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Table source selector ───────────────────────────────────────────────── */
+
+.tableSourceRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.tableSourceLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tableSourceSelect {
+  appearance: none;
+  background: var(--cream-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 5px;
+  padding: 6px 28px 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  min-width: 180px;
+}
+
+.tableSourceSelect:hover {
+  border-color: rgba(0, 107, 107, 0.35);
+}
+
+.tableSourceSelect:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(0, 107, 107, 0.12);
+}
+
+.tableSourceBadge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 107, 107, 0.08);
+  color: var(--teal);
+  border: 1px solid rgba(0, 107, 107, 0.2);
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 10px;
+}
+
+.tableSourceHint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-light);
+  font-style: italic;
+}
+
 /* ── Studio header ───────────────────────────────────────────────────────── */
 
 .studioHeader {
@@ -750,6 +815,19 @@
 .sqlModified {
   color: var(--accent);
   font-weight: 600;
+}
+
+.sqlTableAlias {
+  color: var(--teal);
+  font-weight: 500;
+}
+
+.sqlWcTablesHint {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--slate-light);
+  letter-spacing: 0.04em;
 }
 
 .sqlResetBtn {

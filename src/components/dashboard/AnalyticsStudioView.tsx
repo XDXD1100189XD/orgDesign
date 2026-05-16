@@ -15,6 +15,7 @@ import {
 import { parseExcelFile } from '@/lib/parseExcel';
 import type { ExcelRow } from '@/lib/parseExcel';
 import type { DashboardData, AIChartRequest, AggFn as SharedAggFn, ChartType as SharedChartType } from '@/lib/types';
+import type { WorkCapabilityDataset } from '@/lib/workCapabilityDataset';
 import { fmtNum } from '@/lib/costSchema';
 import styles from './AnalyticsStudioView.module.css';
 
@@ -61,6 +62,7 @@ interface Props {
   rows?: ExcelRow[];
   onRowsChange?: (rows: ExcelRow[] | null, meta?: { source: 'analytics-sql' | 'analytics-reset'; query?: string; affected?: number }) => void;
   externalChartRequest?: AIChartRequest | null;
+  workCapabilityDataset?: WorkCapabilityDataset | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -73,6 +75,195 @@ const PALETTES: { label: string; colors: string[] }[] = [
   { label: 'Cool',    colors: ['#2980b9','#1abc9c','#3498db','#16a085','#2471a3','#148f77','#1f618d','#0e6655'] },
   { label: 'Mono',    colors: ['#111111','#333333','#555555','#777777','#999999','#aaaaaa','#bbbbbb','#cccccc'] },
 ];
+
+// ── Table source (org data vs WorkCapability tables) ─────────────────────────
+
+type TableSource =
+  | 'org'
+  | 'activity_library'
+  | 'activity_assignments'
+  | 'skill_library'
+  | 'role_skill_requirements'
+  | 'employee_skills'
+  | 'activity_skill_requirements';
+
+interface TableSourceOption { group: string; key: TableSource; label: string }
+
+const TABLE_SOURCE_OPTIONS: TableSourceOption[] = [
+  { group: 'Org Data',             key: 'org',                         label: 'Organisation Data'           },
+  { group: 'Activity Analysis',    key: 'activity_library',            label: 'Activity Library'            },
+  { group: 'Activity Analysis',    key: 'activity_assignments',        label: 'Activity Assignments'        },
+  { group: 'Skill & Capability',   key: 'skill_library',               label: 'Skill Library'               },
+  { group: 'Skill & Capability',   key: 'employee_skills',             label: 'Employee Skills'             },
+  { group: 'Skill & Capability',   key: 'activity_skill_requirements', label: 'Activity Skill Requirements' },
+  { group: 'Succession & Talent',  key: 'role_skill_requirements',     label: 'Role Skill Requirements'     },
+];
+
+const TABLE_SOURCE_GROUPS = Array.from(
+  new Set(TABLE_SOURCE_OPTIONS.map(o => o.group))
+);
+
+function getWcRows(dataset: WorkCapabilityDataset, source: TableSource): ExcelRow[] {
+  switch (source) {
+    case 'activity_library':            return dataset.shared.activityLibrary            as ExcelRow[];
+    case 'activity_assignments':        return dataset.states.asIs.activityAssignments   as ExcelRow[];
+    case 'skill_library':               return dataset.shared.skillLibrary               as ExcelRow[];
+    case 'role_skill_requirements':     return dataset.states.asIs.roleSkillRequirements as ExcelRow[];
+    case 'employee_skills':             return dataset.states.asIs.employeeSkills        as ExcelRow[];
+    case 'activity_skill_requirements': return dataset.shared.activitySkillRequirements  as ExcelRow[];
+    default: return [];
+  }
+}
+
+const WC_TABLE_NAMES: Exclude<TableSource, 'org'>[] = [
+  'activity_library',
+  'activity_assignments',
+  'skill_library',
+  'role_skill_requirements',
+  'employee_skills',
+  'activity_skill_requirements',
+];
+
+// Derived fields added to each WC table via cross-table join (not present in raw rows)
+const WC_DERIVED_FIELDS: Partial<Record<Exclude<TableSource, 'org'>, string[]>> = {
+  activity_library:            ['assigned_people', 'required_skills'],
+  activity_assignments:        ['activity_name', 'activity_criticality'],
+  skill_library:               ['employees_with_skill', 'employees_at_level_3_plus', 'activities_requiring_skill', 'roles_requiring_skill', 'single_point_risk'],
+  role_skill_requirements:     ['skill_name', 'skill_family'],
+  employee_skills:             ['skill_name', 'skill_family', 'skill_criticality'],
+  activity_skill_requirements: ['skill_name', 'activity_name'],
+};
+
+function computeWcDerived(dataset: WorkCapabilityDataset, source: Exclude<TableSource, 'org'>): ExcelRow[] {
+  const base = getWcRows(dataset, source);
+  switch (source) {
+    case 'activity_library': {
+      const assignments = dataset.states.asIs.activityAssignments;
+      const actSkillReqs = dataset.shared.activitySkillRequirements;
+      const assignedPeople = new Map<string, Set<string>>();
+      for (const a of assignments) {
+        const aid = String(a.activity_id ?? '');
+        if (!assignedPeople.has(aid)) assignedPeople.set(aid, new Set());
+        assignedPeople.get(aid)!.add(String(a.employee_id ?? ''));
+      }
+      const reqCounts = new Map<string, number>();
+      for (const r of actSkillReqs) {
+        const aid = String(r.activity_id ?? '');
+        reqCounts.set(aid, (reqCounts.get(aid) ?? 0) + 1);
+      }
+      return base.map(row => ({
+        ...row,
+        assigned_people: assignedPeople.get(String(row.activity_id ?? ''))?.size ?? 0,
+        required_skills: reqCounts.get(String(row.activity_id ?? '')) ?? 0,
+      }));
+    }
+
+    case 'activity_assignments': {
+      const actById = new Map(
+        dataset.shared.activityLibrary.map(a => [String(a.activity_id ?? ''), a])
+      );
+      return base.map(row => {
+        const act = actById.get(String(row.activity_id ?? ''));
+        return {
+          ...row,
+          activity_name: act ? String(act.activity_name ?? '') : '',
+          activity_criticality: act ? String(act.criticality ?? '') : '',
+        };
+      });
+    }
+
+    case 'skill_library': {
+      const empSkills = dataset.states.asIs.employeeSkills;
+      const actReqs = dataset.shared.activitySkillRequirements;
+      const roleReqs = dataset.states.asIs.roleSkillRequirements;
+      const empSet = new Map<string, Set<string>>();
+      const emp3Set = new Map<string, Set<string>>();
+      for (const es of empSkills) {
+        const sid = String(es.skill_id ?? '');
+        const eid = String(es.employee_id ?? '');
+        const lvl = Number(es.current_level ?? 0);
+        if (!empSet.has(sid)) empSet.set(sid, new Set());
+        empSet.get(sid)!.add(eid);
+        if (lvl >= 3) {
+          if (!emp3Set.has(sid)) emp3Set.set(sid, new Set());
+          emp3Set.get(sid)!.add(eid);
+        }
+      }
+      const actCount = new Map<string, number>();
+      for (const r of actReqs) {
+        const sid = String(r.skill_id ?? '');
+        actCount.set(sid, (actCount.get(sid) ?? 0) + 1);
+      }
+      const roleCount = new Map<string, number>();
+      for (const r of roleReqs) {
+        const sid = String(r.skill_id ?? '');
+        roleCount.set(sid, (roleCount.get(sid) ?? 0) + 1);
+      }
+      return base.map(row => {
+        const sid = String(row.skill_id ?? '');
+        const ews = empSet.get(sid)?.size ?? 0;
+        return {
+          ...row,
+          employees_with_skill: ews,
+          employees_at_level_3_plus: emp3Set.get(sid)?.size ?? 0,
+          activities_requiring_skill: actCount.get(sid) ?? 0,
+          roles_requiring_skill: roleCount.get(sid) ?? 0,
+          single_point_risk: ews <= 1 ? 'High' : ews <= 3 ? 'Medium' : 'Low',
+        };
+      });
+    }
+
+    case 'role_skill_requirements': {
+      const skillById = new Map(
+        dataset.shared.skillLibrary.map(s => [String(s.skill_id ?? ''), s])
+      );
+      return base.map(row => {
+        const skill = skillById.get(String(row.skill_id ?? ''));
+        return {
+          ...row,
+          skill_name: skill ? String(skill.skill_name ?? '') : '',
+          skill_family: skill ? String(skill.skill_family ?? '') : '',
+        };
+      });
+    }
+
+    case 'employee_skills': {
+      const skillById = new Map(
+        dataset.shared.skillLibrary.map(s => [String(s.skill_id ?? ''), s])
+      );
+      return base.map(row => {
+        const skill = skillById.get(String(row.skill_id ?? ''));
+        return {
+          ...row,
+          skill_name: skill ? String(skill.skill_name ?? '') : '',
+          skill_family: skill ? String(skill.skill_family ?? '') : '',
+          skill_criticality: skill ? String(skill.criticality ?? '') : '',
+        };
+      });
+    }
+
+    case 'activity_skill_requirements': {
+      const skillById = new Map(
+        dataset.shared.skillLibrary.map(s => [String(s.skill_id ?? ''), s])
+      );
+      const actById = new Map(
+        dataset.shared.activityLibrary.map(a => [String(a.activity_id ?? ''), a])
+      );
+      return base.map(row => {
+        const skill = skillById.get(String(row.skill_id ?? ''));
+        const act = actById.get(String(row.activity_id ?? ''));
+        return {
+          ...row,
+          skill_name: skill ? String(skill.skill_name ?? '') : '',
+          activity_name: act ? String(act.activity_name ?? '') : '',
+        };
+      });
+    }
+
+    default:
+      return base;
+  }
+}
 
 const DERIVED_KEYS = ['span', 'depth', 'subtree_count'] as const;
 type DerivedKey = typeof DERIVED_KEYS[number];
@@ -454,7 +645,7 @@ function stripDerived(rows: ExcelRow[]): ExcelRow[] {
   return rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !DERIVED_KEYS_SET.has(k))) as ExcelRow);
 }
 
-export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest }: Props) {
+export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest, workCapabilityDataset }: Props) {
   const [rows, setRows]           = useState<ExcelRow[]>([]);
   const [fields, setFields]       = useState<string[]>([]);
   const [derivedFields, setDerivedFields] = useState<string[]>([]);
@@ -468,10 +659,12 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
   const [activeDragField, setActiveDragField] = useState<string | null>(null);
   const [sqlQuery, setSqlQuery]   = useState('SELECT * FROM data LIMIT 20');
   const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+  const [tableSource, setTableSource] = useState<TableSource>('org');
   const originalRowsRef = useRef<ExcelRow[]>([]);
   const rawRowsRef      = useRef<ExcelRow[]>([]);
   const dataRef         = useRef(data);
   dataRef.current = data;
+  const currentDerivedKeysRef = useRef<Set<string>>(new Set());
 
   function applyEnrichment(raw: ExcelRow[], currentData: DashboardData | null | undefined) {
     const enriched = currentData ? mergeWithDerived(raw, currentData) : raw;
@@ -479,6 +672,7 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
     const added = currentData
       ? (DERIVED_KEYS as readonly string[]).filter(k => !excelHeaders.includes(k) && enriched.some(r => k in r))
       : [];
+    currentDerivedKeysRef.current = new Set(added);
     setRows(enriched);
     originalRowsRef.current = enriched;
     setFields([...excelHeaders].sort((a, b) => a.localeCompare(b)));
@@ -488,8 +682,22 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
     alasql.tables.data.data = enriched.map((row: ExcelRow) => ({ ...row }));
   }
 
+  function applyWcEnrichment(baseRows: ExcelRow[], enrichedRows: ExcelRow[], derivedKeys: string[]) {
+    const excelHeaders = baseRows.length ? Object.keys(baseRows[0]) : [];
+    const actual = derivedKeys.filter(k => enrichedRows.some(r => k in r));
+    currentDerivedKeysRef.current = new Set(actual);
+    setRows(enrichedRows);
+    originalRowsRef.current = enrichedRows;
+    setFields([...excelHeaders].sort((a, b) => a.localeCompare(b)));
+    setDerivedFields(actual);
+    alasql('DROP TABLE IF EXISTS data');
+    alasql('CREATE TABLE data');
+    alasql.tables.data.data = enrichedRows.map((r: ExcelRow) => ({ ...r }));
+  }
+
   // Parse file whenever it changes; fall back to pre-parsed rows (restored session)
   useEffect(() => {
+    setTableSource('org'); // always reset to org data when file/rows change
     if (file) {
       setLoading(true);
       setError(null);
@@ -516,6 +724,33 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
     setLoading(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, propRows]);
+
+  // Register all WC tables in alasql (with derived fields) so SQL JOINs work
+  useEffect(() => {
+    if (!workCapabilityDataset) return;
+    for (const tbl of WC_TABLE_NAMES) {
+      const enrichedRows = computeWcDerived(workCapabilityDataset, tbl);
+      alasql(`DROP TABLE IF EXISTS ${tbl}`);
+      alasql(`CREATE TABLE ${tbl}`);
+      alasql.tables[tbl].data = enrichedRows.map((r: ExcelRow) => ({ ...r }));
+    }
+  }, [workCapabilityDataset]);
+
+  // Switch active rows when tableSource changes
+  useEffect(() => {
+    setConfig(DEFAULT_CONFIG);
+    setSqlResult(null);
+    setExternalPivotData(null);
+    if (tableSource === 'org') {
+      applyEnrichment(rawRowsRef.current, dataRef.current);
+    } else if (workCapabilityDataset) {
+      const src = tableSource as Exclude<TableSource, 'org'>;
+      const baseRows = getWcRows(workCapabilityDataset, src);
+      const enrichedRows = computeWcDerived(workCapabilityDataset, src);
+      applyWcEnrichment(baseRows, enrichedRows, WC_DERIVED_FIELDS[src] ?? []);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableSource]);
 
   // Re-enrich without re-parsing when DashboardData changes (e.g. re-mapping)
   useEffect(() => {
@@ -565,14 +800,16 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
         setRows([...updated]);
         if (updated.length > 0) {
           const allKeys = Object.keys(updated[0]);
-          setFields(allKeys.filter(k => !DERIVED_KEYS_SET.has(k)).sort((a, b) => a.localeCompare(b)));
-          setDerivedFields(allKeys.filter(k => DERIVED_KEYS_SET.has(k)));
+          setFields(allKeys.filter(k => !currentDerivedKeysRef.current.has(k)).sort((a, b) => a.localeCompare(b)));
+          setDerivedFields(allKeys.filter(k => currentDerivedKeysRef.current.has(k)));
         }
-        onRowsChange?.(stripDerived(updated), {
-          source: 'analytics-sql',
-          query: sqlQuery,
-          affected: typeof result === 'number' ? result : updated.length,
-        });
+        if (tableSource === 'org') {
+          onRowsChange?.(stripDerived(updated), {
+            source: 'analytics-sql',
+            query: sqlQuery,
+            affected: typeof result === 'number' ? result : updated.length,
+          });
+        }
         setSqlResult({ type: 'affected', count: typeof result === 'number' ? result : 0 });
       } else {
         const data = Array.isArray(result) ? result as Record<string, unknown>[] : [];
@@ -590,7 +827,9 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
     alasql('DROP TABLE IF EXISTS data');
     alasql('CREATE TABLE data');
     alasql.tables.data.data = original.map((r: ExcelRow) => ({ ...r }));
-    onRowsChange?.(null, { source: 'analytics-reset', affected: original.length });
+    if (tableSource === 'org') {
+      onRowsChange?.(null, { source: 'analytics-reset', affected: original.length });
+    }
     setSqlResult({ type: 'affected', count: original.length });
   }
 
@@ -643,8 +882,10 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
   const configLabel = config.rowField
     ? `${AGG_LABELS[config.aggFn]}${config.valueField ? ` of ${config.valueField}` : ''} by ${config.rowField}${config.colField ? ` × ${config.colField}` : ''}`
     : 'Configure your pivot above';
-  const hasInput = Boolean(file || propRows?.length);
-  const datasetLabel = file?.name ?? 'Current state';
+  const hasInput = Boolean(file || propRows?.length || (tableSource !== 'org' && workCapabilityDataset));
+  const datasetLabel = tableSource !== 'org'
+    ? (TABLE_SOURCE_OPTIONS.find(o => o.key === tableSource)?.label ?? tableSource)
+    : (file?.name ?? 'Current state');
 
   // No dataset state
   if (!hasInput) {
@@ -653,6 +894,11 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
         <div className={styles.emptyIcon}>⊞</div>
         <div className={styles.emptyTitle}>Analytics Studio</div>
         <div className={styles.emptySub}>Upload an Excel or CSV file to start building pivot views</div>
+        {workCapabilityDataset && (
+          <div className={styles.emptySub} style={{ marginTop: 12 }}>
+            Or select a Work &amp; Capability table from the Data source dropdown above
+          </div>
+        )}
       </div>
     );
   }
@@ -688,6 +934,38 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
           </div>
         </div>
 
+        {/* ── Data source selector ── */}
+        <div className={styles.tableSourceRow}>
+          <span className={styles.tableSourceLabel}>Data source</span>
+          <select
+            className={styles.tableSourceSelect}
+            value={tableSource}
+            onChange={e => setTableSource(e.target.value as TableSource)}
+          >
+            {TABLE_SOURCE_GROUPS.map(group => {
+              const opts = TABLE_SOURCE_OPTIONS.filter(o => o.group === group);
+              if (group !== 'Org Data' && !workCapabilityDataset) return null;
+              return (
+                <optgroup key={group} label={group}>
+                  {opts.map(o => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+                </optgroup>
+              );
+            })}
+          </select>
+          {tableSource !== 'org' && (
+            <span className={styles.tableSourceBadge}>
+              {TABLE_SOURCE_OPTIONS.find(o => o.key === tableSource)?.label}
+            </span>
+          )}
+          {!workCapabilityDataset && (
+            <span className={styles.tableSourceHint}>
+              Upload Work &amp; Capability data to unlock more tables
+            </span>
+          )}
+        </div>
+
         {/* ── Field palette ── */}
         <div className={styles.palette}>
           <div className={styles.paletteLabel}>Fields — drag to configure below</div>
@@ -696,7 +974,9 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
           </div>
           {derivedFields.length > 0 && (
             <>
-              <div className={styles.paletteLabelDerived}>Derived · Hierarchy</div>
+              <div className={styles.paletteLabelDerived}>
+                {tableSource === 'org' ? 'Derived · Hierarchy' : 'Derived · Analytics'}
+              </div>
               <div className={styles.paletteChips}>
                 {derivedFields.map(f => <DraggableField key={f} field={f} derived />)}
               </div>
@@ -941,12 +1221,25 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                 <div className={styles.sqlSectionTitle}>SQL Editor</div>
                 <div className={styles.sqlSectionMeta}>
                   Table: <code className={styles.sqlCode}>data</code>
+                  {tableSource !== 'org' && (
+                    <span className={styles.sqlTableAlias}> → {TABLE_SOURCE_OPTIONS.find(o => o.key === tableSource)?.label}</span>
+                  )}
                   {' · '}{rows.length.toLocaleString()} rows
                   {' · '}{allFields.length} columns
-                  {originalRowsRef.current.length !== rows.length && (
+                  {tableSource === 'org' && originalRowsRef.current.length !== rows.length && (
                     <span className={styles.sqlModified}> · modified</span>
                   )}
                 </div>
+                {workCapabilityDataset && (
+                  <div className={styles.sqlWcTablesHint}>
+                    Also available: {WC_TABLE_NAMES.map((t, i) => (
+                      <span key={t}>
+                        <code className={styles.sqlCode}>{t}</code>
+                        {i < WC_TABLE_NAMES.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <button className={styles.sqlResetBtn} onClick={resetData}>
                 Reset data
@@ -965,7 +1258,7 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                       const sep = q && !q.endsWith(' ') ? ' ' : '';
                       return q + sep + `\`${f}\``;
                     })}
-                    title={derivedFields.includes(f) ? `Derived hierarchy field: ${f}` : 'Click to insert column name'}
+                    title={derivedFields.includes(f) ? `Derived field: ${f}` : 'Click to insert column name'}
                   >
                     {derivedFields.includes(f) && <span className={styles.derivedMark}>≈</span>}
                     {f}

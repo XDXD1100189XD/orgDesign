@@ -1470,6 +1470,7 @@ export default function HomePage() {
             handleSharedRowsChange(rows, { ...meta, target: studioSlice })
           }
           externalChartRequest={pendingChartRequest}
+          workCapabilityDataset={workCapabilityDataset}
         />
       </div>
 
