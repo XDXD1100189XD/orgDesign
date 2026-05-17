@@ -7,14 +7,14 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'run_sql',
     description:
-      'Execute a SQL query against the employee data table named `data`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations. Mutations require user confirmation before executing — call normally and the UI will prompt the user. Use for filters, aggregations, person lookups, group analysis, cost calculations, and data edits. If this returns { ok: false, error: "..." }, immediately fix and retry with a corrected query.',
+      'Execute a SQL query against the in-memory AlaSQL tables. The primary org table is named `data`. When Work & Capability data is loaded, these additional tables are also available for SELECT and JOIN: `activity_library`, `skill_library`, `activity_assignments`, `employee_skills`, `role_skill_requirements`, `activity_skill_requirements`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations (on `data` only — WC tables are read-only). Mutations require user confirmation. Call `get_wc_schema` first to learn join keys before writing cross-table queries. If this returns { ok: false, error: "..." }, fix and retry. For Work & Capability questions, prefer domain WC tools (analyze_activities, find_successors, etc.) first — use run_wc_sql for read-only WC SQL fallback.',
     input_schema: {
       type: 'object' as const,
       properties: {
         query: {
           type: 'string',
           description:
-            'A valid AlaSQL statement. Column names with spaces must be backtick-quoted. Table name is always `data`.',
+            'A valid AlaSQL statement. Column names with spaces must be backtick-quoted. Org table is `data`; WC tables use their real names (e.g. SELECT * FROM skill_library LIMIT 5).',
         },
       },
       required: ['query'],
@@ -32,10 +32,179 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_schema',
     description:
-      'Returns the exact list of column names available in the data table. Call this if you are unsure about column names before writing SQL.',
+      'Returns the exact list of column names available in the org `data` table, plus a summary of Work & Capability tables available for JOIN (when WC data is loaded). Call this if you are unsure about column names before writing SQL.',
     input_schema: {
       type: 'object' as const,
       properties: {},
+    },
+  },
+  {
+    name: 'get_wc_schema',
+    description:
+      'Returns the full schema — columns (raw + derived), primary key, foreign key relationships, ready-to-use JOIN examples, per-table recommended use cases, and 2–3 safe example queries — for all Work & Capability tables. Call this BEFORE writing any multi-table SQL that involves activity_library, skill_library, activity_assignments, employee_skills, role_skill_requirements, or activity_skill_requirements. Only useful when WC data is loaded (check with get_schema first).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        table: {
+          type: 'string',
+          enum: ['activity_library', 'activity_assignments', 'skill_library', 'role_skill_requirements', 'employee_skills', 'activity_skill_requirements'],
+          description: 'Optional: return schema for a single WC table. Omit to get all six tables.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'run_wc_sql',
+    description:
+      "Execute a read-only SELECT against Work & Capability tables. Mutations (INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE) are blocked at the executor. Default LIMIT 25 enforced if omitted. Max 10 rows returned to you (full results visible in UI). Use as SQL fallback ONLY when domain WC tools (analyze_activities, find_successors, etc.) don't cover the question. Call get_wc_schema first for join keys. Tables: activity_library, activity_assignments, skill_library, role_skill_requirements, employee_skills, activity_skill_requirements. If ok:false: check the error, call get_wc_schema to verify names, and retry.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sql:    { type: 'string', description: 'A valid AlaSQL SELECT statement. No mutations allowed.' },
+        reason: { type: 'string', description: 'Optional: why domain tools were insufficient for this question.' },
+      },
+      required: ['sql'],
+    },
+  },
+  {
+    name: 'analyze_activities',
+    description:
+      'Analyzes Work & Capability activity data across four dimensions. focus="automation" ranks activities by automation cost-reduction potential; focus="outsourcing" ranks by outsourcing potential; focus="workload" shows which employees hold the most activity load and which activities have fewer than 2 staff (concentration risk); focus="skill_coverage" finds activities whose required skills are not covered by current employee proficiency levels; focus="all" returns all four. Optionally filter by department. Requires WC data to be loaded — check with get_schema first.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        focus: {
+          type: 'string',
+          enum: ['automation', 'outsourcing', 'workload', 'skill_coverage', 'all'],
+          description: 'Analysis dimension. Default: all.',
+        },
+        department: {
+          type: 'string',
+          description: 'Optional: filter to a specific department_focus value. Use get_column_values on department_focus to see valid values.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max rows per result set (default 10).',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_employee_activity_load',
+    description:
+      'Returns the full activity portfolio for a specific employee: every activity they are assigned to with time allocation %, RACI accountability, criticality, automation/outsourcing exposure scores, complexity, and frequency. Use for questions like "what does person X work on?", "what share of X\'s time is high-criticality?", or "which of X\'s activities are automation candidates?". Requires WC data to be loaded. Use find_employees first to look up the employee_id from a name.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        employee_id: {
+          type: 'string',
+          description: 'Employee ID to look up (must match employee_id in activity_assignments). Use find_employees to discover IDs from names.',
+        },
+      },
+      required: ['employee_id'],
+    },
+  },
+  {
+    name: 'get_critical_skills',
+    description:
+      'Surfaces skills with single-point risk (only 1–2 employees hold them), critically low coverage relative to role/activity demand (employees_at_level_3_plus < roles_requiring_skill), or any combination. Use for talent-risk questions: "which skills are we most exposed on?", "what are our key-person skill dependencies?", "where will we have a shortage?". Requires WC data to be loaded.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        risk_type: {
+          type: 'string',
+          enum: ['single_point', 'low_coverage', 'all'],
+          description: 'single_point = held by ≤2 people; low_coverage = qualified supply < demand; all = either. Default: all.',
+        },
+        criticality: {
+          type: 'string',
+          enum: ['Low', 'Medium', 'High'],
+          description: 'Optional: filter to skills of this criticality level only.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'analyze_skill_gaps',
+    description:
+      'Computes skill coverage for a given role or scope by comparing role_skill_requirements against employee_skills. Reports how many employees currently meet each required skill at the required level, and identifies which skills have the most coverage gaps. Note: results reflect current skill-record coverage — treat as an indicator, not an absolute readiness score. scope="employee" requires employee_id + position_title + department (use find_employees first). scope="role" requires position_title + department. scope="department" requires department. scope="org" needs no filter. Requires WC data loaded.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['employee', 'role', 'department', 'org'],
+          description: 'Analysis scope. Default: role.',
+        },
+        employee_id: {
+          type: 'string',
+          description: 'Required for scope=employee. Use find_employees to look up.',
+        },
+        position_title: {
+          type: 'string',
+          description: 'Required for scope=employee (the role to compare against) and scope=role.',
+        },
+        department: {
+          type: 'string',
+          description: 'Required for scope=role (narrows to position_title within that department). Required for scope=department.',
+        },
+        min_gap:  { type: 'number', description: 'Minimum gap level to include (default 1). Only applies to scope=employee.' },
+        limit:    { type: 'number', description: 'Max rows returned (default 20).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'find_successors',
+    description: "Finds employees ranked by weighted skill match for a target role. Returns fit_pct (weighted: High skills 3×, Medium 2×, Low 1×), skills_met, critical_gaps, and top 5 missing skills. Results are skill-match indicators — not succession readiness. Call find_employees first to get position_title+department, then pass both here. role_key is preferred over position_title+department if available. Requires WC data loaded.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        position_title:      { type: 'string', description: 'Target role title. Use with department for disambiguation.' },
+        department:          { type: 'string', description: 'Narrows role match to one department. Recommended when position_title is not unique.' },
+        role_key:            { type: 'string', description: 'Preferred: stable role identifier from role_skill_requirements.role_key.' },
+        exclude_employee_id: { type: 'string', description: 'Exclude current role-holder from results.' },
+        min_readiness_pct:   { type: 'number', description: 'Minimum fit_pct to include (default 60).' },
+        limit:               { type: 'number', description: 'Max candidates (default 10).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'map_talent_to_need',
+    description: "Finds employees matching a skill, activity, or role. match_type='skill' (high confidence): employees with a given skill at or above min_level. match_type='activity' (medium): employees ranked by weighted skill-fit for an activity's required skills. match_type='role' (broad skill-fit): ranked employees for a role — use find_successors for succession planning. All modes return scoring_method and caveats. Requires WC data loaded.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        match_type:     { type: 'string', enum: ['skill', 'activity', 'role'], description: 'What to match against.' },
+        skill_id:       { type: 'string', description: 'Required if match_type=skill.' },
+        activity_id:    { type: 'string', description: 'Required if match_type=activity.' },
+        position_title: { type: 'string', description: 'Required if match_type=role. Use with department.' },
+        department:     { type: 'string', description: 'For match_type=role: narrows role requirements to one department.' },
+        role_key:       { type: 'string', description: 'For match_type=role: preferred role identifier.' },
+        min_level:      { type: 'number', description: 'For match_type=skill only: minimum current_level (default 1).' },
+        min_fit_pct:    { type: 'number', description: 'For match_type=activity/role: minimum weighted fit % to include (default 0 = include all).' },
+        limit:          { type: 'number', description: 'Max results (default 10).' },
+      },
+      required: ['match_type'],
+    },
+  },
+  {
+    name: 'assess_succession_risks',
+    description: 'Scans roles in role_skill_requirements and computes, for each role, how many employees meet ≥ readiness_threshold_pct of required skills (weighted by criticality: High=3, Medium=2, Low=1). Flags roles Critical (0 qualified), High (1), Medium (2), Low (3+). Results reflect skill-match coverage only — not succession plan status. For candidates for one role, use find_successors. Requires WC data loaded.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        scope:                   { type: 'string', enum: ['org', 'department'], description: 'org = all roles; department = filter to one. Default: org.' },
+        department:              { type: 'string', description: 'Required if scope=department.' },
+        readiness_threshold_pct: { type: 'number', description: 'Min weighted fit_pct to count as qualified successor (default 70).' },
+        min_required_skills:     { type: 'number', description: 'Skip roles with fewer than this many defined requirements (default 1).' },
+        limit:                   { type: 'number', description: 'Max roles in result (default 20). Summary counts always reflect all assessed roles.' },
+      },
+      required: [],
     },
   },
   {

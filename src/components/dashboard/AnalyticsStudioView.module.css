@@ -844,6 +844,42 @@
   transition: all 0.12s;
 }
 .sqlResetBtn:hover { border-color: var(--red); color: var(--red); }
+.sqlResetBtnActive { border-color: var(--ink); color: var(--ink); background: rgba(0,0,0,0.05); }
+
+.sqlHeadActions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+.schemaMapPanel {
+  margin: 12px 0 8px;
+  padding: 16px;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.schemaMapTitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin-bottom: 10px;
+}
+
+.schemaMapLegend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--slate);
+}
+
+.schemaMapLegendActivity { color: #2a6da8; }
+.schemaMapLegendSkill    { color: #2a8a4a; }
+.schemaMapLegendOrg      { color: #888; }
+.schemaMapLegendLine     { color: var(--slate); }
 
 /* Column chips */
 

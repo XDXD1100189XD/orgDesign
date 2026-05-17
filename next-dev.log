@@ -12,3 +12,63 @@
  ○ Compiling / ...
  ✓ Compiled / in 3.8s (2022 modules)
  HEAD / 200 in 4902ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 881ms (1276 modules)
+ GET /serviceworker.js 404 in 1566ms
+ ✓ Compiled in 854ms (968 modules)
+ ✓ Compiled in 233ms (968 modules)
+ ✓ Compiled in 1351ms (978 modules)
+ ✓ Compiled in 347ms (967 modules)
+ ✓ Compiled in 233ms (967 modules)
+ GET /serviceworker.js 404 in 89ms
+ ○ Compiling / ...
+ ✓ Compiled / in 2s (1057 modules)
+ GET / 200 in 4150ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 997ms (2025 modules)
+ GET /serviceworker.js 404 in 1303ms
+ GET /serviceworker.js 404 in 141ms
+ ✓ Compiled in 927ms (2020 modules)
+ ✓ Compiled in 481ms (2020 modules)
+ ✓ Compiled in 283ms (2020 modules)
+ ✓ Compiled in 428ms (2020 modules)
+ ✓ Compiled in 575ms (2020 modules)
+ ✓ Compiled in 734ms (2020 modules)
+ ✓ Compiled in 716ms (2020 modules)
+ ✓ Compiled in 588ms (2020 modules)
+ ✓ Compiled in 518ms (2020 modules)
+ ✓ Compiled in 621ms (2020 modules)
+ ✓ Compiled in 516ms (2020 modules)
+ ✓ Compiled in 1460ms (2020 modules)
+ ✓ Compiled in 731ms (2030 modules)
+ ✓ Compiled in 316ms (2030 modules)
+ GET / 200 in 1455ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1434ms (2025 modules)
+ GET /serviceworker.js 404 in 1994ms
+ GET /serviceworker.js 404 in 147ms
+ ✓ Compiled in 1449ms (2020 modules)
+ ✓ Compiled in 597ms (2020 modules)
+ ✓ Compiled in 508ms (2020 modules)
+ ✓ Compiled in 553ms (2020 modules)
+ ✓ Compiled in 490ms (2020 modules)
+ ✓ Compiled in 605ms (2020 modules)
+ ✓ Compiled in 354ms (2020 modules)
+ GET / 200 in 1449ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1321ms (2025 modules)
+ GET /serviceworker.js 404 in 1825ms
+ GET /serviceworker.js 404 in 70ms
+ ✓ Compiled in 1132ms (2020 modules)
+ ✓ Compiled in 586ms (2020 modules)
+ ✓ Compiled in 443ms (2020 modules)
+ ✓ Compiled in 546ms (2020 modules)
+ ✓ Compiled in 1093ms (2030 modules)
+ ✓ Compiled in 875ms (2020 modules)
+ ✓ Compiled in 444ms (2020 modules)
+ ✓ Compiled in 639ms (2020 modules)
+ GET / 200 in 3890ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.5s (2025 modules)
+ GET /serviceworker.js 404 in 3305ms
+ GET /serviceworker.js 404 in 219ms

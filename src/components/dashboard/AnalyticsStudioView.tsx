@@ -134,6 +134,25 @@ const WC_DERIVED_FIELDS: Partial<Record<Exclude<TableSource, 'org'>, string[]>> 
   activity_skill_requirements: ['skill_name', 'activity_name'],
 };
 
+const WC_PRIMARY_KEYS: Partial<Record<Exclude<TableSource, 'org'>, string>> = {
+  activity_library:            'activity_id',
+  activity_assignments:        'assignment_id',
+  skill_library:               'skill_id',
+  role_skill_requirements:     'requirement_id',
+  employee_skills:             'employee_skill_id',
+  activity_skill_requirements: 'activity_skill_requirement_id',
+};
+
+const WC_SCHEMA_RELATIONSHIPS: { from: string; to: string; key: string }[] = [
+  { from: 'activity_assignments',        to: 'activity_library', key: 'activity_id'  },
+  { from: 'activity_assignments',        to: 'org data',         key: 'employee_id'  },
+  { from: 'activity_skill_requirements', to: 'activity_library', key: 'activity_id'  },
+  { from: 'activity_skill_requirements', to: 'skill_library',    key: 'skill_id'     },
+  { from: 'employee_skills',             to: 'skill_library',    key: 'skill_id'     },
+  { from: 'employee_skills',             to: 'org data',         key: 'employee_id'  },
+  { from: 'role_skill_requirements',     to: 'skill_library',    key: 'skill_id'     },
+];
+
 function computeWcDerived(dataset: WorkCapabilityDataset, source: Exclude<TableSource, 'org'>): ExcelRow[] {
   const base = getWcRows(dataset, source);
   switch (source) {
@@ -645,6 +664,112 @@ function stripDerived(rows: ExcelRow[]): ExcelRow[] {
   return rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !DERIVED_KEYS_SET.has(k))) as ExcelRow);
 }
 
+function WcSchemaMapSvg({ hasOrg }: { hasOrg: boolean }) {
+  const ARROW_ID = 'wcArrow';
+  return (
+    <svg
+      viewBox="-8 -8 808 342"
+      style={{ width: '100%', maxWidth: 800, height: 'auto', overflow: 'visible', display: 'block' }}
+      aria-label="WC table relationship diagram"
+    >
+      <defs>
+        <marker id={ARROW_ID} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aabbb" />
+        </marker>
+      </defs>
+
+      {/* ── Connections (drawn behind boxes) ─────────────────────────── */}
+      {/* activity_assignments → activity_library (activity_id) */}
+      <line x1="225" y1="165" x2="344" y2="75" stroke="#9aabbb" strokeWidth="1.5" markerEnd={`url(#${ARROW_ID})`} />
+      <text x="283" y="112" fontSize="8" fill="#7a8b9b" textAnchor="middle">activity_id</text>
+
+      {/* activity_skill_requirements → activity_library (activity_id) */}
+      <line x1="375" y1="165" x2="344" y2="75" stroke="#9aabbb" strokeWidth="1.5" markerEnd={`url(#${ARROW_ID})`} />
+      <text x="352" y="108" fontSize="8" fill="#7a8b9b" textAnchor="middle">activity_id</text>
+
+      {/* activity_skill_requirements → skill_library (skill_id) */}
+      <line x1="483" y1="175" x2="637" y2="75" stroke="#9aabbb" strokeWidth="1.5" markerEnd={`url(#${ARROW_ID})`} />
+      <text x="570" y="118" fontSize="8" fill="#7a8b9b" textAnchor="middle">skill_id</text>
+
+      {/* role_skill_requirements → skill_library (skill_id) */}
+      <line x1="652" y1="165" x2="637" y2="75" stroke="#9aabbb" strokeWidth="1.5" markerEnd={`url(#${ARROW_ID})`} />
+      <text x="655" y="112" fontSize="8" fill="#7a8b9b" textAnchor="middle">skill_id</text>
+
+      {/* activity_assignments → org data (employee_id) — only when org data is available */}
+      {hasOrg && (
+        <>
+          <line x1="120" y1="165" x2="82" y2="75" stroke="#bbb" strokeWidth="1.5" strokeDasharray="4,3" markerEnd={`url(#${ARROW_ID})`} />
+          <text x="88" y="115" fontSize="8" fill="#999" textAnchor="middle">employee_id</text>
+        </>
+      )}
+
+      {/* employee_skills → org data (employee_id) — left-side routing */}
+      {hasOrg && (
+        <>
+          <polyline points="20,295 4,295 4,55 20,55" fill="none" stroke="#bbb" strokeWidth="1.5" strokeDasharray="4,3" markerEnd={`url(#${ARROW_ID})`} />
+          <text transform="rotate(-90 5 175)" x="5" y="175" textAnchor="middle" fontSize="8" fill="#999">employee_id</text>
+        </>
+      )}
+
+      {/* employee_skills → skill_library (skill_id) — bottom-right routing */}
+      <polyline points="195,295 786,295 786,55 715,55" fill="none" stroke="#9aabbb" strokeWidth="1.5" markerEnd={`url(#${ARROW_ID})`} />
+      <text x="490" y="308" fontSize="8" fill="#7a8b9b" textAnchor="middle">skill_id</text>
+
+      {/* ── Table boxes ─────────────────────────────────────────────── */}
+      {/* Org Data (dashed, only when loaded) */}
+      {hasOrg && (
+        <g>
+          <rect x="20" y="35" width="125" height="40" rx="4" fill="#f5f5f5" stroke="#999" strokeWidth="1.5" strokeDasharray="5,3" />
+          <text x="82" y="52" textAnchor="middle" fontSize="11" fontWeight="600" fill="#666">Org Data</text>
+          <text x="82" y="66" textAnchor="middle" fontSize="9" fill="#888" fontFamily="monospace">PK: Employee ID</text>
+        </g>
+      )}
+
+      {/* activity_library */}
+      <g>
+        <rect x="257" y="35" width="175" height="40" rx="4" fill="#e8f2fc" stroke="#2a6da8" strokeWidth="1.5" />
+        <text x="344" y="52" textAnchor="middle" fontSize="11" fontWeight="600" fill="#1a4a78">activity_library</text>
+        <text x="344" y="66" textAnchor="middle" fontSize="9" fill="#2a6da8" fontFamily="monospace">PK: activity_id</text>
+      </g>
+
+      {/* skill_library */}
+      <g>
+        <rect x="562" y="35" width="155" height="40" rx="4" fill="#e8f5ec" stroke="#2a8a4a" strokeWidth="1.5" />
+        <text x="639" y="52" textAnchor="middle" fontSize="11" fontWeight="600" fill="#1a5a2a">skill_library</text>
+        <text x="639" y="66" textAnchor="middle" fontSize="9" fill="#2a8a4a" fontFamily="monospace">PK: skill_id</text>
+      </g>
+
+      {/* activity_assignments */}
+      <g>
+        <rect x="20" y="165" width="208" height="40" rx="4" fill="#d8e8f8" stroke="#2a6da8" strokeWidth="1.5" />
+        <text x="124" y="182" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#1a4a78">activity_assignments</text>
+        <text x="124" y="196" textAnchor="middle" fontSize="9" fill="#2a6da8" fontFamily="monospace">PK: assignment_id</text>
+      </g>
+
+      {/* activity_skill_requirements */}
+      <g>
+        <rect x="270" y="165" width="218" height="40" rx="4" fill="#d8e8f8" stroke="#2a6da8" strokeWidth="1.5" />
+        <text x="379" y="182" textAnchor="middle" fontSize="10" fontWeight="600" fill="#1a4a78">activity_skill_req.</text>
+        <text x="379" y="196" textAnchor="middle" fontSize="9" fill="#2a6da8" fontFamily="monospace">PK: asr_id</text>
+      </g>
+
+      {/* role_skill_requirements */}
+      <g>
+        <rect x="560" y="165" width="190" height="40" rx="4" fill="#d8f0e0" stroke="#2a8a4a" strokeWidth="1.5" />
+        <text x="655" y="182" textAnchor="middle" fontSize="10" fontWeight="600" fill="#1a5a2a">role_skill_req.</text>
+        <text x="655" y="196" textAnchor="middle" fontSize="9" fill="#2a8a4a" fontFamily="monospace">PK: requirement_id</text>
+      </g>
+
+      {/* employee_skills */}
+      <g>
+        <rect x="20" y="275" width="175" height="40" rx="4" fill="#d8f0e0" stroke="#2a8a4a" strokeWidth="1.5" />
+        <text x="107" y="292" textAnchor="middle" fontSize="11" fontWeight="600" fill="#1a5a2a">employee_skills</text>
+        <text x="107" y="306" textAnchor="middle" fontSize="9" fill="#2a8a4a" fontFamily="monospace">PK: employee_skill_id</text>
+      </g>
+    </svg>
+  );
+}
+
 export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest, workCapabilityDataset }: Props) {
   const [rows, setRows]           = useState<ExcelRow[]>([]);
   const [fields, setFields]       = useState<string[]>([]);
@@ -657,8 +782,9 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
   const [saveName, setSaveName]   = useState('');
   const [showSave, setShowSave]   = useState(false);
   const [activeDragField, setActiveDragField] = useState<string | null>(null);
-  const [sqlQuery, setSqlQuery]   = useState('SELECT * FROM data LIMIT 20');
-  const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+  const [sqlQuery, setSqlQuery]       = useState('SELECT * FROM data LIMIT 20');
+  const [sqlResult, setSqlResult]     = useState<SqlResult | null>(null);
+  const [showSchemaMap, setShowSchemaMap] = useState(false);
   const [tableSource, setTableSource] = useState<TableSource>('org');
   const originalRowsRef = useRef<ExcelRow[]>([]);
   const rawRowsRef      = useRef<ExcelRow[]>([]);
@@ -1241,10 +1367,35 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                   </div>
                 )}
               </div>
-              <button className={styles.sqlResetBtn} onClick={resetData}>
-                Reset data
-              </button>
+              <div className={styles.sqlHeadActions}>
+                {workCapabilityDataset && (
+                  <button
+                    className={`${styles.sqlResetBtn} ${showSchemaMap ? styles.sqlResetBtnActive : ''}`}
+                    onClick={() => setShowSchemaMap(v => !v)}
+                    title="Show/hide table relationship diagram"
+                  >
+                    {showSchemaMap ? '✕ Schema' : '⬡ Schema'}
+                  </button>
+                )}
+                <button className={styles.sqlResetBtn} onClick={resetData}>
+                  Reset data
+                </button>
+              </div>
             </div>
+
+            {/* Schema relationship map */}
+            {showSchemaMap && workCapabilityDataset && (
+              <div className={styles.schemaMapPanel}>
+                <div className={styles.schemaMapTitle}>Table Relationships</div>
+                <WcSchemaMapSvg hasOrg={!!data} />
+                <div className={styles.schemaMapLegend}>
+                  <span className={styles.schemaMapLegendActivity}>■ Activity domain</span>
+                  <span className={styles.schemaMapLegendSkill}>■ Skill domain</span>
+                  {data && <span className={styles.schemaMapLegendOrg}>⬜ Org data (when loaded)</span>}
+                  <span className={styles.schemaMapLegendLine}>── FK join  · · · cross-domain join</span>
+                </div>
+              </div>
+            )}
 
             {/* Column chips — click to insert column name */}
             <div className={styles.sqlColWrap}>

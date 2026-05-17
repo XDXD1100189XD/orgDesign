@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { CompMatrix, DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
 import type { ExcelRow } from '@/lib/parseExcel';
 import { buildSystemContext } from '@/lib/aiContext';
+import { isSensitiveField, summarizeRowsForAI } from '@/lib/aiDataMinimization';
 import { validateAndSimulate, applyActions } from '@/lib/scenarioPlanner';
 import { repairDeletedManagerReferences } from '@/lib/hierarchyRows';
 import { computeStateMetrics } from '@/lib/computeStateMetrics';
@@ -52,6 +53,87 @@ function compressHistory(messages: RawMessage[]): RawMessage[] {
       ),
     };
   });
+}
+
+// ── WC weighted scoring helpers ───────────────────────────────────────────────
+
+interface WcSkillRequirement {
+  skill_id: string;
+  skill_name?: string;
+  required_level: number;
+  criticality?: string;
+}
+
+interface TalentScore {
+  employee_id: string | number;
+  fit_pct: number;
+  skills_met: number;
+  skills_required: number;
+  critical_gaps: number;
+  major_gaps: number;
+  missing_skills: { skill_id: string; skill_name?: string; required_level: number; current_level: number; criticality?: string }[];
+}
+
+function wcWeight(criticality?: string): number {
+  if (criticality === 'High') return 3;
+  if (criticality === 'Medium') return 2;
+  return 1;
+}
+
+function buildEmployeeSkillMap(esRows: Record<string, unknown>[]): Record<string, Record<string, number>> {
+  const map: Record<string, Record<string, number>> = {};
+  for (const row of esRows) {
+    const empId   = String(row.employee_id ?? '');
+    const skillId = String(row.skill_id ?? '');
+    const level   = typeof row.current_level === 'number' ? row.current_level : 0;
+    if (!map[empId]) map[empId] = {};
+    map[empId][skillId] = level;
+  }
+  return map;
+}
+
+function scoreAgainstRequirements(
+  requirements: WcSkillRequirement[],
+  employeeSkillMap: Record<string, Record<string, number>>,
+  opts: { excludeId?: string; minPct?: number; limit?: number } = {},
+): TalentScore[] {
+  const { excludeId, minPct = 0, limit = 100 } = opts;
+  const totalWeight = requirements.reduce((s, r) => s + wcWeight(r.criticality), 0);
+  const scores: TalentScore[] = [];
+
+  for (const [empId, skillMap] of Object.entries(employeeSkillMap)) {
+    if (excludeId && empId === String(excludeId)) continue;
+    let metWeight = 0;
+    let critGaps = 0;
+    let majorGaps = 0;
+    const missing: TalentScore['missing_skills'] = [];
+
+    for (const req of requirements) {
+      const cur = skillMap[req.skill_id] ?? 0;
+      if (cur >= req.required_level) {
+        metWeight += wcWeight(req.criticality);
+      } else {
+        missing.push({ skill_id: req.skill_id, skill_name: req.skill_name, required_level: req.required_level, current_level: cur, criticality: req.criticality });
+        if (req.criticality === 'High') critGaps++;
+        else if (req.criticality === 'Medium') majorGaps++;
+      }
+    }
+
+    const fitPct = totalWeight > 0 ? Math.round((metWeight / totalWeight) * 100) : 0;
+    if (fitPct < minPct) continue;
+
+    scores.push({
+      employee_id: empId,
+      fit_pct: fitPct,
+      skills_met: requirements.length - missing.length,
+      skills_required: requirements.length,
+      critical_gaps: critGaps,
+      major_gaps: majorGaps,
+      missing_skills: missing.sort((a, b) => wcWeight(b.criticality) - wcWeight(a.criticality)).slice(0, 5),
+    });
+  }
+
+  return scores.sort((a, b) => b.fit_pct - a.fit_pct).slice(0, limit);
 }
 
 // ── SSE event types ────────────────────────────────────────────────────────────
@@ -276,6 +358,163 @@ const SUGGESTIONS = [
   'Give me a full summary of this organization',
 ];
 
+// ── AI data minimization ──────────────────────────────────────────────────────
+// Strips / summarizes tool results before they go into Anthropic tool_result content.
+// Full results are still used for UI display — only what Claude receives is limited.
+
+function sanitizeToolResultForAI(name: string, result: unknown): unknown {
+  // find_employees: strip all sensitive/PII fields from each employee row
+  if (name === 'find_employees') {
+    const r = result as { found?: number; employees?: Record<string, unknown>[] };
+    if (!r.employees) return result;
+    return {
+      ...r,
+      employees: r.employees.map(row =>
+        Object.fromEntries(Object.entries(row).filter(([k]) => !isSensitiveField(k)))
+      ),
+    };
+  }
+
+  // run_sql: strip sensitive fields from rows, cap to 5 sample rows for Claude
+  if (name === 'run_sql') {
+    const r = result as { ok?: boolean; rows?: Record<string, unknown>[]; error?: string; truncated?: boolean; total_rows?: number };
+    if (!r.ok || !r.rows) return result;
+    return {
+      ok: r.ok,
+      ...summarizeRowsForAI(r.rows, 5),
+      ...(r.rows.length > 5
+        ? { note: `Full ${r.rows.length} rows visible in the UI. Use a more targeted query to narrow results.` }
+        : {}),
+    };
+  }
+
+  // run_wc_sql: strip sensitive fields, cap to 10 sample rows for Claude
+  if (name === 'run_wc_sql') {
+    const r = result as { ok?: boolean; rows?: Record<string, unknown>[]; error?: string };
+    if (!r.ok || !r.rows) return result;
+    return {
+      ok: r.ok,
+      ...summarizeRowsForAI(r.rows, 10),
+      ...(r.rows.length > 10 ? { note: `Full ${r.rows.length} rows visible in the UI. Narrow query for more detail.` } : {}),
+    };
+  }
+
+  // get_column_values: omit values entirely for sensitive columns; cap to top 10 for others
+  if (name === 'get_column_values') {
+    const r = result as { column?: string; unique_count?: number; distribution?: Record<string, number> };
+    if (!r.column) return result;
+    if (isSensitiveField(r.column)) {
+      return { column: r.column, unique_count: r.unique_count, sensitive: true, values_omitted: true };
+    }
+    if (!r.distribution) return result;
+    const top10 = Object.entries(r.distribution)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+    return {
+      column:       r.column,
+      unique_count: r.unique_count,
+      top_values:   Object.fromEntries(top10),
+      truncated:    Object.keys(r.distribution).length > 10,
+    };
+  }
+
+  // get_employee_activity_load: strip full activities array; keep summary stats + top 3
+  if (name === 'get_employee_activity_load') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    const activities = r.activities as Record<string, unknown>[] | undefined;
+    const top3 = activities?.slice(0, 3).map(a => ({
+      activity_name:        a.activity_name ?? a.activity_id,
+      time_allocation_pct:  a.time_allocation_pct,
+      accountability:       a.accountability,
+      criticality:          a.activity_criticality,
+    }));
+    const { activities: _dropped, ...rest } = r;
+    void _dropped;
+    return { ...rest, top_activities: top3 };
+  }
+
+  // plan_scenario: strip action_previews (may contain employee names); keep aggregate impact
+  if (name === 'plan_scenario') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    const previews = r.action_previews as unknown[] | undefined;
+    const { action_previews: _dropped, ...rest } = r;
+    void _dropped;
+    return { ...rest, affected_employee_count: previews?.length ?? 0 };
+  }
+
+  // analyze_activities: cap per-bucket arrays to 15 rows
+  if (name === 'analyze_activities') {
+    const r = result as Record<string, unknown>;
+    const trimmed: Record<string, unknown> = { ...r };
+    for (const key of ['automation_candidates', 'outsourcing_candidates', 'understaffed_activities', 'skill_coverage_gaps', 'workload_concentration']) {
+      if (Array.isArray(trimmed[key])) {
+        const arr = trimmed[key] as unknown[];
+        if (arr.length > 15) { trimmed[key] = arr.slice(0, 15); trimmed[`${key}_total`] = arr.length; }
+      }
+    }
+    return trimmed;
+  }
+
+  // get_critical_skills: cap per-bucket arrays to 15 rows
+  if (name === 'get_critical_skills') {
+    const r = result as Record<string, unknown>;
+    const trimmed: Record<string, unknown> = { ...r };
+    for (const key of ['single_point_risk_skills', 'low_coverage_skills', 'supply_demand_alerts']) {
+      if (Array.isArray(trimmed[key])) {
+        const arr = trimmed[key] as unknown[];
+        if (arr.length > 15) { trimmed[key] = arr.slice(0, 15); trimmed[`${key}_total`] = arr.length; }
+      }
+    }
+    return trimmed;
+  }
+
+  // analyze_skill_gaps: cap gaps array to 20
+  if (name === 'analyze_skill_gaps') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    if (Array.isArray(r.gaps) && (r.gaps as unknown[]).length > 20) {
+      const arr = r.gaps as unknown[];
+      return { ...r, gaps: arr.slice(0, 20), gaps_total: arr.length };
+    }
+    return result;
+  }
+
+  if (name === 'find_successors') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    if (Array.isArray(r.candidates) && (r.candidates as unknown[]).length > 15) {
+      const arr = r.candidates as unknown[];
+      return { ...r, candidates: arr.slice(0, 15), candidates_total: arr.length };
+    }
+    return result;
+  }
+
+  if (name === 'map_talent_to_need') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    if (Array.isArray(r.matches) && (r.matches as unknown[]).length > 15) {
+      const arr = r.matches as unknown[];
+      return { ...r, matches: arr.slice(0, 15), matches_total: arr.length };
+    }
+    return result;
+  }
+
+  if (name === 'assess_succession_risks') {
+    const r = result as Record<string, unknown>;
+    if (r.error) return result;
+    if (Array.isArray(r.risks) && (r.risks as unknown[]).length > 20) {
+      const arr = r.risks as unknown[];
+      return { ...r, risks: arr.slice(0, 20), risks_total: arr.length };
+    }
+    return result;
+  }
+
+  // Default: pass through (schema-only tools, WC analysis tools, comp bands, change log, etc.)
+  return result;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is', onRowsChange, onCreateChart, onDataChange, onCompMatrixChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full' }: Props) {
@@ -435,6 +674,12 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         const raw  = toolInput.query as string;
         const verb = raw.trim().toUpperCase().split(/[\s(]/)[0];
         const isWrite = ['UPDATE', 'DELETE', 'INSERT'].includes(verb);
+
+        const WC_TABLES = ['activity_library','activity_assignments','skill_library','role_skill_requirements','employee_skills','activity_skill_requirements'];
+        if (isWrite && WC_TABLES.some(t => new RegExp(`\\b${t}\\b`, 'i').test(raw))) {
+          return { ok: false, error: 'WC tables are read-only. Mutations on activity_library, skill_library, and related tables are not allowed. Use run_wc_sql for read-only WC queries.' };
+        }
+
         const beforeWriteRows: ExcelRow[] = isWrite
           ? (alasql.tables[AI_TABLE]?.data ?? []).map((r: ExcelRow) => ({ ...r }))
           : [];
@@ -530,7 +775,623 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
 
       if (name === 'get_schema') {
         const sample = alasql.tables[AI_TABLE]?.data?.[0];
-        return { columns: sample ? Object.keys(sample) : [] };
+        const orgCols = sample ? Object.keys(sample) : [];
+        const wcTableNames = [
+          'activity_library', 'activity_assignments', 'skill_library',
+          'role_skill_requirements', 'employee_skills', 'activity_skill_requirements',
+        ] as const;
+        const wcPrimaryKeys: Record<string, string> = {
+          activity_library:            'activity_id',
+          activity_assignments:        'assignment_id',
+          skill_library:               'skill_id',
+          role_skill_requirements:     'requirement_id',
+          employee_skills:             'employee_skill_id',
+          activity_skill_requirements: 'activity_skill_requirement_id',
+        };
+        const wcTablesAvailable = wcTableNames
+          .map(t => ({ table: t, rows: (alasql.tables[t]?.data?.length ?? 0), primaryKey: wcPrimaryKeys[t] }))
+          .filter(t => t.rows > 0);
+        return {
+          org_data_columns: orgCols,
+          wc_tables_available: wcTablesAvailable,
+          note: wcTablesAvailable.length > 0
+            ? 'Call get_wc_schema for full column lists and JOIN examples for the WC tables.'
+            : 'No Work & Capability data loaded.',
+        };
+      }
+
+      if (name === 'get_wc_schema') {
+        const wcTableNames = [
+          'activity_library', 'activity_assignments', 'skill_library',
+          'role_skill_requirements', 'employee_skills', 'activity_skill_requirements',
+        ] as const;
+        const wcPrimaryKeys: Record<string, string> = {
+          activity_library:            'activity_id',
+          activity_assignments:        'assignment_id',
+          skill_library:               'skill_id',
+          role_skill_requirements:     'requirement_id',
+          employee_skills:             'employee_skill_id',
+          activity_skill_requirements: 'activity_skill_requirement_id',
+        };
+        const wcDerivedFields: Record<string, string[]> = {
+          activity_library:            ['assigned_people', 'required_skills'],
+          activity_assignments:        ['activity_name', 'activity_criticality'],
+          skill_library:               ['employees_with_skill', 'employees_at_level_3_plus', 'activities_requiring_skill', 'roles_requiring_skill', 'single_point_risk'],
+          role_skill_requirements:     ['skill_name', 'skill_family'],
+          employee_skills:             ['skill_name', 'skill_family', 'skill_criticality'],
+          activity_skill_requirements: ['skill_name', 'activity_name'],
+        };
+        const wcUseCases: Record<string, string[]> = {
+          activity_library:            ['Browse activity catalog', 'Filter by process_area, complexity, or automation_cost_reduction_pct'],
+          activity_assignments:        ['Find which employees are assigned to which activities', 'Compute allocation load per employee'],
+          skill_library:               ['Browse the skill catalog', 'Look up skill_family groupings'],
+          role_skill_requirements:     ['Check which skills a role requires', 'Find which skills are required by the most roles'],
+          employee_skills:             ['Find employees who have a given skill', 'Check skill level distribution across the org'],
+          activity_skill_requirements: ['Find which skills an activity requires', 'Find which activities require a given skill'],
+        };
+        const wcExampleQueries: Record<string, string[]> = {
+          activity_library: [
+            'SELECT activity_id, activity_name, process_area FROM activity_library LIMIT 10',
+            'SELECT activity_id, activity_name, automation_cost_reduction_pct FROM activity_library WHERE automation_cost_reduction_pct > 50 ORDER BY automation_cost_reduction_pct DESC LIMIT 10',
+          ],
+          activity_assignments: [
+            'SELECT employee_id, COUNT(*) AS activity_count, SUM(time_allocation_pct) AS total_pct FROM activity_assignments GROUP BY employee_id ORDER BY total_pct DESC LIMIT 10',
+            'SELECT aa.employee_id, al.activity_name, aa.time_allocation_pct FROM activity_assignments aa JOIN activity_library al ON aa.activity_id = al.activity_id LIMIT 25',
+          ],
+          skill_library: [
+            'SELECT skill_id, skill_name, skill_family FROM skill_library LIMIT 25',
+            'SELECT skill_family, COUNT(*) AS skill_count FROM skill_library GROUP BY skill_family ORDER BY skill_count DESC',
+          ],
+          role_skill_requirements: [
+            'SELECT skill_id, COUNT(*) AS role_count FROM role_skill_requirements GROUP BY skill_id ORDER BY role_count DESC LIMIT 10',
+            'SELECT position_title, department, COUNT(*) AS required_skills FROM role_skill_requirements GROUP BY position_title, department ORDER BY required_skills DESC LIMIT 10',
+          ],
+          employee_skills: [
+            'SELECT employee_id, current_level FROM employee_skills WHERE skill_id = \'<id>\' ORDER BY current_level DESC LIMIT 25',
+            'SELECT skill_id, COUNT(DISTINCT employee_id) AS employees_with_skill, AVG(current_level) AS avg_level FROM employee_skills GROUP BY skill_id ORDER BY employees_with_skill DESC LIMIT 10',
+          ],
+          activity_skill_requirements: [
+            'SELECT asr.activity_id, al.activity_name, asr.skill_id, asr.required_level FROM activity_skill_requirements asr JOIN activity_library al ON asr.activity_id = al.activity_id LIMIT 25',
+            'SELECT asr.activity_id, al.activity_name, COUNT(*) AS required_skills FROM activity_skill_requirements asr JOIN activity_library al ON asr.activity_id = al.activity_id GROUP BY asr.activity_id, al.activity_name ORDER BY required_skills DESC LIMIT 10',
+          ],
+        };
+        const relationships = [
+          { from: 'activity_assignments',        to: 'activity_library', key: 'activity_id'  },
+          { from: 'activity_assignments',        to: 'org data',         key: 'employee_id'  },
+          { from: 'activity_skill_requirements', to: 'activity_library', key: 'activity_id'  },
+          { from: 'activity_skill_requirements', to: 'skill_library',    key: 'skill_id'     },
+          { from: 'employee_skills',             to: 'skill_library',    key: 'skill_id'     },
+          { from: 'employee_skills',             to: 'org data',         key: 'employee_id'  },
+          { from: 'role_skill_requirements',     to: 'skill_library',    key: 'skill_id'     },
+        ];
+        const filterTable = toolInput.table as string | undefined;
+        const schemas = wcTableNames
+          .filter(t => !filterTable || t === filterTable)
+          .map(t => {
+            const sample = alasql.tables[t]?.data?.[0];
+            const columns = sample ? Object.keys(sample) : [];
+            const derived = wcDerivedFields[t] ?? [];
+            const raw = columns.filter(c => !derived.includes(c));
+            return {
+              table: t,
+              primaryKey: wcPrimaryKeys[t],
+              rawColumns: raw,
+              derivedColumns: derived,
+              rowCount: alasql.tables[t]?.data?.length ?? 0,
+              joins: relationships.filter(r => r.from === t || r.to === t),
+              useCases: wcUseCases[t] ?? [],
+              exampleQueries: wcExampleQueries[t] ?? [],
+            };
+          });
+        const joinExamples = relationships
+          .filter(r => r.to !== 'org data')
+          .map(r => `${r.from} JOIN ${r.to} ON ${r.from}.${r.key} = ${r.to}.${r.key}`);
+        const orgJoinNote = 'To join with org data use: <wc_table>.employee_id = data.`Employee ID` (replace "Employee ID" with your actual employee ID column name from get_schema)';
+        return { schemas, joinExamples, orgJoinNote };
+      }
+
+      if (name === 'run_wc_sql') {
+        const rawSql = ((toolInput.sql as string) ?? '').trim();
+        const wcVerb = rawSql.toUpperCase().split(/[\s(]/)[0];
+        const BLOCKED_VERBS = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TRUNCATE'];
+        if (BLOCKED_VERBS.includes(wcVerb)) {
+          return { ok: false, error: `run_wc_sql is read-only. '${wcVerb}' is not allowed on WC tables.` };
+        }
+        const wcSql = /\bLIMIT\b/i.test(rawSql) ? rawSql : `${rawSql.replace(/;?\s*$/, '')} LIMIT 25`;
+        try {
+          const wcResult = alasql(wcSql) as unknown;
+          if (Array.isArray(wcResult)) {
+            const rows = wcResult as Record<string, unknown>[];
+            const total = rows.length;
+            const capped = rows.slice(0, 100);
+            return total > 100
+              ? { ok: true, rows: capped, truncated: true, total_rows: total, note: `Showing first 100 of ${total} rows. Use WHERE or LIMIT to narrow.` }
+              : { ok: true, rows: capped };
+          }
+          return { ok: true, result: wcResult };
+        } catch (e) {
+          return { ok: false, error: `SQL error: ${String(e)}. Call get_wc_schema to verify table and column names, then retry.` };
+        }
+      }
+
+      if (name === 'analyze_activities') {
+        const actRows: unknown[] = alasql.tables['activity_library']?.data ?? [];
+        if (!actRows.length) return { error: 'No activity_library data loaded. Please load a Work & Capability dataset first.' };
+
+        const focus     = (toolInput.focus      as string | undefined) ?? 'all';
+        const dept      = toolInput.department  as string | undefined;
+        const limit     = (toolInput.limit      as number | undefined) ?? 10;
+        const safeDepт  = dept?.replace(/'/g, "''");
+        const deptWhere = safeDepт ? ` AND department_focus = '${safeDepт}'` : '';
+
+        const results: Record<string, unknown> = { focus, department_filter: dept ?? null };
+
+        if (focus === 'automation' || focus === 'all') {
+          try {
+            results.automation_candidates = alasql(
+              `SELECT activity_id, activity_name, department_focus, activity_category, nature, criticality,
+                 automation_cost_reduction_pct, assigned_people, required_skills
+               FROM activity_library
+               WHERE automation_cost_reduction_pct > 0${deptWhere}
+               ORDER BY automation_cost_reduction_pct DESC
+               LIMIT ${limit}`
+            );
+          } catch (e) { results.automation_error = String(e); }
+        }
+
+        if (focus === 'outsourcing' || focus === 'all') {
+          try {
+            results.outsourcing_candidates = alasql(
+              `SELECT activity_id, activity_name, department_focus, complexity, criticality,
+                 outsourcing_cost_reduction_pct, assigned_people
+               FROM activity_library
+               WHERE outsourcing_cost_reduction_pct > 0${deptWhere}
+               ORDER BY outsourcing_cost_reduction_pct DESC
+               LIMIT ${limit}`
+            );
+          } catch (e) { results.outsourcing_error = String(e); }
+        }
+
+        if (focus === 'workload' || focus === 'all') {
+          const aaRows: unknown[] = alasql.tables['activity_assignments']?.data ?? [];
+          if (!aaRows.length) {
+            results.workload_note = 'activity_assignments table is empty — workload analysis unavailable.';
+          } else {
+            try {
+              const wlSql = safeDepт
+                ? `SELECT aa.employee_id, COUNT(aa.activity_id) AS activity_count,
+                     SUM(aa.time_allocation_pct) AS total_time_pct
+                   FROM activity_assignments aa
+                   JOIN activity_library al ON aa.activity_id = al.activity_id
+                   WHERE al.department_focus = '${safeDepт}'
+                   GROUP BY aa.employee_id
+                   ORDER BY total_time_pct DESC
+                   LIMIT ${limit}`
+                : `SELECT employee_id, COUNT(activity_id) AS activity_count,
+                     SUM(time_allocation_pct) AS total_time_pct
+                   FROM activity_assignments
+                   GROUP BY employee_id
+                   ORDER BY total_time_pct DESC
+                   LIMIT ${limit}`;
+              results.workload_concentration = alasql(wlSql);
+              results.understaffed_activities = alasql(
+                `SELECT activity_id, activity_name, criticality, assigned_people, department_focus
+                 FROM activity_library
+                 WHERE assigned_people < 2${deptWhere}
+                 ORDER BY criticality DESC
+                 LIMIT ${limit}`
+              );
+            } catch (e) { results.workload_error = String(e); }
+          }
+        }
+
+        if (focus === 'skill_coverage' || focus === 'all') {
+          const asrRows: unknown[] = alasql.tables['activity_skill_requirements']?.data ?? [];
+          const esRows:  unknown[] = alasql.tables['employee_skills']?.data ?? [];
+          if (!asrRows.length || !esRows.length) {
+            results.skill_coverage_note = 'activity_skill_requirements or employee_skills table is empty — skill coverage analysis unavailable.';
+          } else {
+            try {
+              results.skill_coverage_gaps = alasql(
+                `SELECT al.activity_id, al.activity_name, al.criticality, al.department_focus,
+                   al.required_skills AS skill_requirements,
+                   COUNT(DISTINCT CASE WHEN es.current_level >= asr.required_level THEN asr.skill_id END) AS met_requirements,
+                   al.required_skills - COUNT(DISTINCT CASE WHEN es.current_level >= asr.required_level THEN asr.skill_id END) AS unmet_requirements
+                 FROM activity_library al
+                 LEFT JOIN activity_skill_requirements asr ON al.activity_id = asr.activity_id
+                 LEFT JOIN employee_skills es ON asr.skill_id = es.skill_id
+                 WHERE al.required_skills > 0${deptWhere}
+                 GROUP BY al.activity_id, al.activity_name, al.criticality, al.department_focus, al.required_skills
+                 ORDER BY unmet_requirements DESC
+                 LIMIT ${limit}`
+              );
+            } catch (e) { results.skill_coverage_error = String(e); }
+          }
+        }
+
+        return results;
+      }
+
+      if (name === 'get_employee_activity_load') {
+        const aaRows: unknown[] = alasql.tables['activity_assignments']?.data ?? [];
+        if (!aaRows.length) return { error: 'No activity_assignments data loaded.' };
+
+        const rawEmpId = toolInput.employee_id as string;
+        const safeEmpIdStr = rawEmpId.replace(/'/g, "''");
+        const firstRow = aaRows[0] as Record<string, unknown>;
+        const idIsNumeric = typeof firstRow.employee_id === 'number';
+        const empIdClause = idIsNumeric && !isNaN(Number(rawEmpId))
+          ? `aa.employee_id = ${Number(rawEmpId)}`
+          : `aa.employee_id = '${safeEmpIdStr}'`;
+
+        try {
+          const activities = alasql(
+            `SELECT aa.assignment_id, aa.activity_id, aa.time_allocation_pct, aa.accountability,
+               aa.activity_name, aa.activity_criticality,
+               al.nature, al.process_area, al.automation_cost_reduction_pct,
+               al.outsourcing_cost_reduction_pct, al.complexity, al.frequency
+             FROM activity_assignments aa
+             JOIN activity_library al ON aa.activity_id = al.activity_id
+             WHERE ${empIdClause}
+             ORDER BY aa.time_allocation_pct DESC`
+          ) as Record<string, unknown>[];
+
+          if (!activities.length) {
+            return {
+              employee_id: rawEmpId,
+              error: `No activities found for employee_id "${rawEmpId}". Use find_employees to verify the ID.`,
+            };
+          }
+
+          const totalTime     = activities.reduce((s, r) => s + ((r.time_allocation_pct as number) ?? 0), 0);
+          const avgAutomation = activities.reduce((s, r) => s + ((r.automation_cost_reduction_pct as number) ?? 0), 0) / activities.length;
+          const highCritCount = activities.filter(r => r.activity_criticality === 'High').length;
+
+          return {
+            employee_id:                    rawEmpId,
+            total_activities:               activities.length,
+            total_time_pct:                 Math.round(totalTime),
+            avg_automation_exposure_pct:    Math.round(avgAutomation),
+            high_criticality_activities:    highCritCount,
+            activities,
+          };
+        } catch (e) { return { error: String(e) }; }
+      }
+
+      if (name === 'get_critical_skills') {
+        const slRows: unknown[] = alasql.tables['skill_library']?.data ?? [];
+        if (!slRows.length) return { error: 'No skill_library data loaded.' };
+
+        const riskType   = (toolInput.risk_type  as string | undefined) ?? 'all';
+        const critFilter = toolInput.criticality as string | undefined;
+        const critClause = critFilter ? ` AND criticality = '${critFilter}'` : '';
+
+        try {
+          let whereClause: string;
+          if      (riskType === 'single_point')   whereClause = `WHERE (single_point_risk = 'High' OR employees_with_skill <= 2)${critClause}`;
+          else if (riskType === 'low_coverage')   whereClause = `WHERE employees_at_level_3_plus < roles_requiring_skill${critClause}`;
+          else                                    whereClause = `WHERE (single_point_risk = 'High' OR employees_with_skill <= 2 OR employees_at_level_3_plus < roles_requiring_skill)${critClause}`;
+
+          const skills = alasql(
+            `SELECT skill_id, skill_name, skill_family, skill_type, criticality,
+               employees_with_skill, employees_at_level_3_plus,
+               activities_requiring_skill, roles_requiring_skill, single_point_risk
+             FROM skill_library
+             ${whereClause}
+             ORDER BY employees_with_skill ASC, criticality DESC`
+          ) as Record<string, unknown>[];
+
+          const supplyDemandAlerts = skills
+            .filter(s => (s.roles_requiring_skill as number) > 0)
+            .map(s => ({
+              skill_id:    s.skill_id,
+              skill_name:  s.skill_name,
+              criticality: s.criticality,
+              supply:      s.employees_at_level_3_plus,
+              demand:      s.roles_requiring_skill,
+              ratio:       +((s.employees_at_level_3_plus as number) / (s.roles_requiring_skill as number)).toFixed(2),
+            }))
+            .filter(s => s.ratio < 1)
+            .sort((a, b) => a.ratio - b.ratio);
+
+          return {
+            risk_type:               riskType,
+            criticality_filter:      critFilter ?? null,
+            total_at_risk:           skills.length,
+            single_point_risk_skills: skills.filter(s => s.single_point_risk === 'High' || (s.employees_with_skill as number) <= 2),
+            low_coverage_skills:     skills.filter(s => (s.employees_at_level_3_plus as number) < (s.roles_requiring_skill as number)),
+            supply_demand_alerts:    supplyDemandAlerts,
+          };
+        } catch (e) { return { error: String(e) }; }
+      }
+
+      if (name === 'analyze_skill_gaps') {
+        const rsrRows: unknown[] = alasql.tables['role_skill_requirements']?.data ?? [];
+        const esRows:  unknown[] = alasql.tables['employee_skills']?.data ?? [];
+        if (!rsrRows.length) return { error: 'No role_skill_requirements data loaded. Please load a Work & Capability dataset first.' };
+        if (!esRows.length)  return { error: 'No employee_skills data loaded. Please load a Work & Capability dataset first.' };
+
+        const scope    = (toolInput.scope    as string | undefined) ?? 'role';
+        const empId    = toolInput.employee_id  as string | undefined;
+        const posTitle = toolInput.position_title as string | undefined;
+        const dept     = toolInput.department  as string | undefined;
+        const minGap   = (toolInput.min_gap   as number | undefined) ?? 1;
+        const limit    = (toolInput.limit     as number | undefined) ?? 20;
+
+        const safePos  = posTitle?.replace(/'/g, "''") ?? '';
+        const safeDept = dept?.replace(/'/g, "''") ?? '';
+
+        // Build WHERE clause for role identity — always use position_title + department when both are known
+        const roleFilter = safePos && safeDept
+          ? `rsr.position_title = '${safePos}' AND rsr.department = '${safeDept}'`
+          : safePos
+          ? `rsr.position_title = '${safePos}'`
+          : safeDept
+          ? `rsr.department = '${safeDept}'`
+          : '1=1';
+
+        try {
+          if (scope === 'employee') {
+            if (!empId || !posTitle) return { error: 'scope=employee requires both employee_id and position_title. Use find_employees to look up the employee first.' };
+            const firstEs = esRows[0] as Record<string, unknown>;
+            const idIsNum = typeof (firstEs as Record<string, unknown>).employee_id === 'number';
+            const idClause = idIsNum && !isNaN(Number(empId))
+              ? `es.employee_id = ${Number(empId)}`
+              : `es.employee_id = '${empId.replace(/'/g, "''")}'`;
+
+            const gaps = alasql(
+              `SELECT rsr.skill_id, rsr.skill_name, rsr.skill_family, rsr.required_level,
+                 CASE WHEN es.current_level IS NULL THEN 0 ELSE es.current_level END AS current_level,
+                 rsr.required_level - CASE WHEN es.current_level IS NULL THEN 0 ELSE es.current_level END AS gap,
+                 rsr.criticality
+               FROM role_skill_requirements rsr
+               LEFT JOIN employee_skills es ON rsr.skill_id = es.skill_id AND ${idClause}
+               WHERE ${roleFilter}
+                 AND (rsr.required_level - CASE WHEN es.current_level IS NULL THEN 0 ELSE es.current_level END) >= ${minGap}
+               ORDER BY gap DESC, rsr.criticality DESC
+               LIMIT ${limit}`
+            ) as Record<string, unknown>[];
+
+            return {
+              scope,
+              employee_id:    empId,
+              position_title: posTitle,
+              department:     dept ?? null,
+              note:           'Gap values reflect skill-record coverage; treat as an indicator, not a verified readiness score.',
+              total_skill_gaps:    gaps.length,
+              critical_skill_gaps: gaps.filter(g => g.criticality === 'High').length,
+              gaps,
+            };
+          }
+
+          if (scope === 'role' || scope === 'department' || scope === 'org') {
+            if (scope === 'role' && !posTitle) return { error: 'scope=role requires position_title.' };
+            if (scope === 'department' && !dept) return { error: 'scope=department requires department.' };
+
+            const gaps = alasql(
+              `SELECT rsr.skill_id, rsr.skill_name, rsr.skill_family, rsr.required_level, rsr.criticality,
+                 COUNT(CASE WHEN es.current_level >= rsr.required_level THEN 1 END) AS employees_meeting_requirement,
+                 COUNT(CASE WHEN es.current_level < rsr.required_level THEN 1 END) AS employees_below_requirement,
+                 COUNT(CASE WHEN es.current_level IS NULL THEN 1 END) AS employees_no_record
+               FROM role_skill_requirements rsr
+               LEFT JOIN employee_skills es ON rsr.skill_id = es.skill_id
+               WHERE ${roleFilter}
+               GROUP BY rsr.skill_id, rsr.skill_name, rsr.skill_family, rsr.required_level, rsr.criticality
+               ORDER BY employees_below_requirement DESC, rsr.criticality DESC
+               LIMIT ${limit}`
+            ) as Record<string, unknown>[];
+
+            return {
+              scope,
+              position_title: posTitle ?? null,
+              department:     dept ?? null,
+              note:           'Coverage counts reflect employees with recorded skill levels; employees with no record are counted separately.',
+              skills_assessed: gaps.length,
+              gaps,
+            };
+          }
+
+          return { error: `Unknown scope "${scope}". Use employee, role, department, or org.` };
+        } catch (e) { return { error: String(e) }; }
+      }
+
+      if (name === 'find_successors') {
+        const rsrRows = (alasql.tables['role_skill_requirements']?.data ?? []) as Record<string, unknown>[];
+        const esRows  = (alasql.tables['employee_skills']?.data  ?? []) as Record<string, unknown>[];
+        if (!rsrRows.length) return { error: 'No role_skill_requirements data loaded. Load a WC dataset first.' };
+        if (!esRows.length)  return { error: 'No employee_skills data loaded. Load a WC dataset first.' };
+
+        const posTitle  = toolInput.position_title as string | undefined;
+        const dept      = toolInput.department as string | undefined;
+        const roleKey   = toolInput.role_key as string | undefined;
+        const excludeId = toolInput.exclude_employee_id as string | undefined;
+        const minPct    = (toolInput.min_readiness_pct as number | undefined) ?? 60;
+        const limit     = (toolInput.limit as number | undefined) ?? 10;
+
+        if (!posTitle && !roleKey) return { error: 'find_successors requires position_title (with optional department) or role_key.' };
+
+        try {
+          let requirements: WcSkillRequirement[];
+          let roleIdentity: Record<string, string | undefined>;
+          let matchWarning: string | undefined;
+
+          if (roleKey) {
+            const safe = roleKey.replace(/'/g, "''");
+            requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE role_key = '${safe}'`) as WcSkillRequirement[];
+            roleIdentity = { role_key: roleKey };
+          } else if (posTitle && dept) {
+            const safePos  = posTitle.replace(/'/g, "''");
+            const safeDept = dept.replace(/'/g, "''");
+            requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE position_title = '${safePos}' AND department = '${safeDept}'`) as WcSkillRequirement[];
+            roleIdentity = { position_title: posTitle, department: dept };
+          } else {
+            const safePos = posTitle!.replace(/'/g, "''");
+            requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE position_title = '${safePos}'`) as WcSkillRequirement[];
+            roleIdentity = { position_title: posTitle };
+            matchWarning = 'Role matched by position_title only — department not provided. Requirements may span multiple departments.';
+          }
+
+          if (!requirements.length) return { error: 'No skill requirements found for the specified role. Use get_column_values on role_skill_requirements.position_title to verify exact values.' };
+
+          const employeeSkillMap = buildEmployeeSkillMap(esRows);
+          const candidates = scoreAgainstRequirements(requirements, employeeSkillMap, { excludeId, minPct, limit });
+
+          return {
+            role: roleIdentity,
+            required_skills_count: requirements.length,
+            candidates_found: candidates.length,
+            scoring_method: 'weighted_by_criticality_high_3_medium_2_low_1',
+            match_basis: 'skills_only',
+            caveat: 'Candidates are ranked by weighted skill match only. Final succession suitability requires department, grade, performance, capacity, and leadership judgment.',
+            ...(matchWarning ? { warning: matchWarning } : {}),
+            candidates,
+          };
+        } catch (e) { return { error: String(e) }; }
+      }
+
+      if (name === 'map_talent_to_need') {
+        const esRows = (alasql.tables['employee_skills']?.data ?? []) as Record<string, unknown>[];
+        if (!esRows.length) return { error: 'No employee_skills data loaded. Load a WC dataset first.' };
+
+        const matchType  = toolInput.match_type as string;
+        const skillId    = toolInput.skill_id as string | undefined;
+        const activityId = toolInput.activity_id as string | undefined;
+        const posTitle   = toolInput.position_title as string | undefined;
+        const dept       = toolInput.department as string | undefined;
+        const roleKey    = toolInput.role_key as string | undefined;
+        const minLevel   = (toolInput.min_level as number | undefined) ?? 1;
+        const minFitPct  = (toolInput.min_fit_pct as number | undefined) ?? 0;
+        const limit      = (toolInput.limit as number | undefined) ?? 10;
+
+        try {
+          if (matchType === 'skill') {
+            if (!skillId) return { error: 'match_type=skill requires skill_id.' };
+            const safeSkill = skillId.replace(/'/g, "''");
+            const matches = alasql(
+              `SELECT employee_id, current_level, skill_name, skill_family, skill_criticality
+               FROM employee_skills
+               WHERE skill_id = '${safeSkill}' AND current_level >= ${minLevel}
+               ORDER BY current_level DESC
+               LIMIT ${limit}`
+            ) as Record<string, unknown>[];
+            return { match_type: 'skill', skill_id: skillId, min_level: minLevel, matches_found: matches.length, confidence: 'high', caveat: 'Skill presence is based on employee_skills records only.', matches };
+          }
+
+          if (matchType === 'activity') {
+            if (!activityId) return { error: 'match_type=activity requires activity_id.' };
+            const asrRows = (alasql.tables['activity_skill_requirements']?.data ?? []) as Record<string, unknown>[];
+            if (!asrRows.length) return { error: 'No activity_skill_requirements data loaded.' };
+            const safeAct = activityId.replace(/'/g, "''");
+            const requirements = alasql(
+              `SELECT skill_id, skill_name, required_level, criticality FROM activity_skill_requirements WHERE activity_id = '${safeAct}'`
+            ) as WcSkillRequirement[];
+            if (!requirements.length) return { error: `No skill requirements found for activity "${activityId}". Verify activity_id using get_column_values.` };
+            const actName = (alasql(
+              `SELECT activity_name FROM activity_library WHERE activity_id = '${safeAct}' LIMIT 1`
+            ) as { activity_name?: string }[])[0]?.activity_name ?? activityId;
+            const employeeSkillMap = buildEmployeeSkillMap(esRows);
+            const rawMatches = scoreAgainstRequirements(requirements, employeeSkillMap, { minPct: minFitPct, limit });
+            const matches = rawMatches.map(s => ({ employee_id: s.employee_id, coverage_pct: s.fit_pct, skills_met: s.skills_met, skills_required: s.skills_required, critical_gaps: s.critical_gaps, missing_skills_top_5: s.missing_skills }));
+            return { match_type: 'activity', activity_id: activityId, activity_name: actName, required_skills_count: requirements.length, matches_found: matches.length, scoring_method: 'weighted_by_criticality_high_3_medium_2_low_1', confidence: 'medium', caveats: ['Skill-fit only — activity ownership depends on more than skill match.', 'Does not account for current workload or department/accountability alignment.'], matches };
+          }
+
+          if (matchType === 'role') {
+            if (!posTitle && !roleKey) return { error: 'match_type=role requires position_title (with optional department) or role_key.' };
+            const rsrRows = (alasql.tables['role_skill_requirements']?.data ?? []) as Record<string, unknown>[];
+            if (!rsrRows.length) return { error: 'No role_skill_requirements data loaded.' };
+            let requirements: WcSkillRequirement[];
+            let roleLabel: string;
+            if (roleKey) {
+              const safe = roleKey.replace(/'/g, "''");
+              requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE role_key = '${safe}'`) as WcSkillRequirement[];
+              roleLabel = roleKey;
+            } else if (posTitle && dept) {
+              const safePos  = posTitle.replace(/'/g, "''");
+              const safeDept = dept.replace(/'/g, "''");
+              requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE position_title = '${safePos}' AND department = '${safeDept}'`) as WcSkillRequirement[];
+              roleLabel = `${posTitle} (${dept})`;
+            } else {
+              const safePos = posTitle!.replace(/'/g, "''");
+              requirements = alasql(`SELECT skill_id, skill_name, required_level, criticality FROM role_skill_requirements WHERE position_title = '${safePos}'`) as WcSkillRequirement[];
+              roleLabel = posTitle!;
+            }
+            if (!requirements.length) return { error: 'No requirements found for the specified role.' };
+            const employeeSkillMap = buildEmployeeSkillMap(esRows);
+            const rawMatches = scoreAgainstRequirements(requirements, employeeSkillMap, { minPct: minFitPct, limit });
+            const matches = rawMatches.map(s => ({ employee_id: s.employee_id, fit_pct: s.fit_pct, skills_met: s.skills_met, skills_required: s.skills_required, critical_gaps: s.critical_gaps, missing_skills_top_5: s.missing_skills }));
+            return { match_type: 'role', role: roleLabel, required_skills_count: requirements.length, matches_found: matches.length, scoring_method: 'weighted_by_criticality_high_3_medium_2_low_1', match_basis: 'skills_only', caveat: 'Broad skill-fit search. For succession planning with a readiness threshold, use find_successors.', matches };
+          }
+
+          return { error: `Unknown match_type "${matchType}". Use skill, activity, or role.` };
+        } catch (e) { return { error: String(e) }; }
+      }
+
+      if (name === 'assess_succession_risks') {
+        const rsrRows = (alasql.tables['role_skill_requirements']?.data ?? []) as Record<string, unknown>[];
+        const esRows  = (alasql.tables['employee_skills']?.data  ?? []) as Record<string, unknown>[];
+        if (!rsrRows.length) return { error: 'No role_skill_requirements data loaded. Load a WC dataset first.' };
+        if (!esRows.length)  return { error: 'No employee_skills data loaded. Load a WC dataset first.' };
+
+        const scope     = (toolInput.scope as string | undefined) ?? 'org';
+        const dept      = toolInput.department as string | undefined;
+        const threshold = (toolInput.readiness_threshold_pct as number | undefined) ?? 70;
+        const minReqd   = (toolInput.min_required_skills as number | undefined) ?? 1;
+        const limit     = (toolInput.limit as number | undefined) ?? 20;
+
+        try {
+          // Group requirements by role identity in JS — correct denominator = requirements.length
+          const filtered = dept ? rsrRows.filter(r => r.department === dept) : rsrRows;
+          const roleGroups: Record<string, { role_key?: string; position_title: string; department: string; requirements: WcSkillRequirement[] }> = {};
+
+          for (const row of filtered) {
+            const rk  = row.role_key as string | undefined;
+            const pt  = String(row.position_title ?? '');
+            const dp  = String(row.department ?? 'UNKNOWN');
+            const key = rk ?? `${pt}||${dp}`;
+            if (!roleGroups[key]) roleGroups[key] = { role_key: rk, position_title: pt, department: dp, requirements: [] };
+            roleGroups[key].requirements.push({ skill_id: String(row.skill_id ?? ''), skill_name: row.skill_name as string | undefined, required_level: Number(row.required_level) || 0, criticality: row.criticality as string | undefined });
+          }
+
+          const roleList = Object.values(roleGroups).filter(r => r.requirements.length >= minReqd);
+          if (!roleList.length) return { error: 'No roles found matching the filter.' };
+
+          // Build employee skill map first, then use employee count for the guard
+          const employeeSkillMap = buildEmployeeSkillMap(esRows);
+          const employeeCount = Object.keys(employeeSkillMap).length;
+          if (roleList.length * employeeCount > 500_000) {
+            return { error: `Dataset too large for browser succession scan (${roleList.length} roles × ${employeeCount} employees). Narrow with scope="department".` };
+          }
+
+          // Score each role
+          const allRisks = roleList.map(role => {
+            const scores    = scoreAgainstRequirements(role.requirements, employeeSkillMap, { minPct: threshold, limit: 9999 });
+            const qualified = scores.length;
+            const riskLevel = qualified === 0 ? 'Critical' : qualified === 1 ? 'High' : qualified <= 2 ? 'Medium' : 'Low';
+            const bestPct   = scores[0]?.fit_pct ?? 0;
+            const topMissing = qualified === 0 ? role.requirements.filter(r => r.criticality === 'High').map(r => r.skill_name ?? r.skill_id).slice(0, 3) : [];
+            return { role_key: role.role_key ?? null, position_title: role.position_title, department: role.department, required_skills_count: role.requirements.length, qualified_successors: qualified, best_candidate_readiness_pct: bestPct, risk_level: riskLevel, top_missing_critical_skills: topMissing };
+          });
+
+          // Sort all risks before slicing — summary counts over full set
+          allRisks.sort((a, b) => {
+            const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+            return order[a.risk_level as keyof typeof order] - order[b.risk_level as keyof typeof order];
+          });
+
+          const countBy = (lvl: string) => allRisks.filter(r => r.risk_level === lvl).length;
+          const risks = allRisks.slice(0, limit);
+
+          return {
+            scope,
+            department: dept ?? null,
+            readiness_threshold_pct: threshold,
+            total_roles_assessed: roleList.length,
+            scoring_method: 'weighted_by_criticality_high_3_medium_2_low_1',
+            caveat: 'Assesses skill-match successor coverage only — not succession plan status or readiness.',
+            summary: { critical: countBy('Critical'), high: countBy('High'), medium: countBy('Medium'), low: countBy('Low') },
+            risks,
+          };
+        } catch (e) { return { error: String(e) }; }
       }
 
       if (name === 'get_column_values') {
@@ -936,7 +1797,8 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         setDisplayMsgs(prev => [...prev, { id: uid(), kind: 'tool_call', name: tc.name, sql }]);
 
         const result    = await executeTool(tc.name, tc.input);
-        const resultStr = JSON.stringify(result);
+        const aiResult  = sanitizeToolResultForAI(tc.name, result);
+        const resultStr = JSON.stringify(aiResult);
 
         let resultRows: Record<string, unknown>[] | undefined;
         let rowCount:   number    | undefined;
@@ -952,6 +1814,62 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           isMetrics = true;
         } else if (tc.name === 'get_schema') {
           summary = 'Schema checked ✓';
+        } else if (tc.name === 'get_wc_schema') {
+          summary = 'WC schema loaded ✓';
+        } else if (tc.name === 'run_wc_sql') {
+          const r = result as { ok?: boolean; error?: string; row_count?: number; truncated_for_ai?: boolean };
+          if (!r.ok) { error = r.error ?? 'WC SQL error'; }
+          else { summary = `WC SQL: ${r.row_count ?? 0} row${(r.row_count ?? 0) !== 1 ? 's' : ''} returned ✓`; }
+        } else if (tc.name === 'analyze_activities') {
+          const r = result as Record<string, unknown>;
+          if (r.error) { error = r.error as string; }
+          else {
+            const parts: string[] = [];
+            if (Array.isArray(r.automation_candidates))  parts.push(`${(r.automation_candidates as unknown[]).length} automation candidates`);
+            if (Array.isArray(r.outsourcing_candidates)) parts.push(`${(r.outsourcing_candidates as unknown[]).length} outsourcing candidates`);
+            if (Array.isArray(r.understaffed_activities)) parts.push(`${(r.understaffed_activities as unknown[]).length} understaffed`);
+            if (Array.isArray(r.skill_coverage_gaps))   parts.push(`${(r.skill_coverage_gaps as unknown[]).length} skill gaps`);
+            summary = parts.length ? `Activity analysis: ${parts.join(' · ')} ✓` : 'Activity analysis complete ✓';
+          }
+        } else if (tc.name === 'get_employee_activity_load') {
+          const r = result as { error?: string; total_activities?: number; total_time_pct?: number; avg_automation_exposure_pct?: number };
+          if (r.error) { error = r.error; }
+          else { summary = `${r.total_activities} activities · ${r.total_time_pct}% total time · ${r.avg_automation_exposure_pct}% avg automation exposure ✓`; }
+        } else if (tc.name === 'get_critical_skills') {
+          const r = result as { error?: string; total_at_risk?: number; risk_type?: string };
+          if (r.error) { error = r.error; }
+          else { summary = `${r.total_at_risk} at-risk skill${r.total_at_risk !== 1 ? 's' : ''} found (${r.risk_type}) ✓`; }
+        } else if (tc.name === 'analyze_skill_gaps') {
+          const r = result as { error?: string; total_skill_gaps?: number; skills_assessed?: number; scope?: string; critical_skill_gaps?: number };
+          if (r.error) { error = r.error; }
+          else {
+            const count = r.total_skill_gaps ?? r.skills_assessed ?? 0;
+            const critNote = r.critical_skill_gaps ? ` · ${r.critical_skill_gaps} critical` : '';
+            summary = `${count} skill gap${count !== 1 ? 's' : ''} (${r.scope})${critNote} ✓`;
+          }
+        } else if (tc.name === 'find_successors') {
+          const r = result as { error?: string; candidates_found?: number; role?: { position_title?: string; role_key?: string } };
+          if (r.error) { error = r.error; }
+          else {
+            const roleLabel = r.role?.position_title ?? r.role?.role_key ?? 'role';
+            summary = `${r.candidates_found} skill-match candidate${r.candidates_found !== 1 ? 's' : ''} for ${roleLabel} ✓`;
+          }
+        } else if (tc.name === 'map_talent_to_need') {
+          const r = result as { error?: string; matches_found?: number; match_type?: string; activity_name?: string; skill_id?: string; role?: string; confidence?: string };
+          if (r.error) { error = r.error; }
+          else {
+            const label = r.activity_name ?? r.skill_id ?? r.role ?? r.match_type;
+            const conf  = r.confidence ? ` (${r.confidence} confidence)` : '';
+            summary = `${r.matches_found} talent match${r.matches_found !== 1 ? 'es' : ''} for ${label}${conf} ✓`;
+          }
+        } else if (tc.name === 'assess_succession_risks') {
+          const r = result as { error?: string; total_roles_assessed?: number; summary?: { critical?: number; high?: number } };
+          if (r.error) { error = r.error; }
+          else {
+            const cr = r.summary?.critical ?? 0;
+            const hi = r.summary?.high ?? 0;
+            summary = `${r.total_roles_assessed} roles assessed · ${cr} critical · ${hi} high risk ✓`;
+          }
         } else if (tc.name === 'get_column_values') {
           const r = result as { column?: string; unique_count?: number; distribution?: Record<string, number> };
           if (r.distribution) {
@@ -1033,6 +1951,15 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
     apply_scenario:     'Applying scenario',
     get_change_log:     'Reading change log',
     get_comp_bands:     'Reading comp bands',
+    get_wc_schema:               'Reading WC table schema',
+    run_wc_sql:                  'Running WC SQL query',
+    analyze_activities:          'Analyzing activities',
+    get_employee_activity_load:  'Loading activity portfolio',
+    get_critical_skills:         'Scanning critical skills',
+    analyze_skill_gaps:          'Analyzing skill gaps',
+    find_successors:             'Finding skill-match successors',
+    map_talent_to_need:          'Mapping talent to need',
+    assess_succession_risks:     'Assessing succession risks',
   };
 
   // Index of the last assistant message (for follow-up chips)

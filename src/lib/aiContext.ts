@@ -2,6 +2,7 @@ import type { DashboardData } from './types';
 import type { ExcelRow } from './parseExcel';
 import type { ColumnMapping } from './fieldDictionary';
 import { CANONICAL_FIELDS } from './fieldDictionary';
+import { isSensitiveField, stripSensitiveFieldsFromRow } from './aiDataMinimization';
 
 function buildColumnInfo(rows: ExcelRow[]): string {
   if (rows.length === 0) return '  (no columns detected)';
@@ -110,8 +111,44 @@ export function buildSystemContext(
     ? `\n## Write mode: ENABLED\nAvailable write tools:\n- \`set_comp_bands\`: create/update comp matrix bands. Call \`run_sql\` first to analyze salary distributions.\n- \`write_employees\`: persist row mutations (INSERT/UPDATE/DELETE) to the org hierarchy. Always preview with \`run_sql SELECT\` first. Specify \`target\`: "as-is", "to-be", or "both".\n- \`set_field_mapping\`: map an unmapped canonical field to an existing column (\`source_column\`) or derive it via SQL (\`derived_sql\` returning \`employee_id\` + \`value\` columns, plus \`new_column_name\`). Always call \`get_column_values\` first.\nAll write operations show a confirmation dialog before applying.`
     : `\n## Write mode: DISABLED\nWrite tools (\`set_comp_bands\`, \`write_employees\`, \`set_field_mapping\`) are defined but disabled. Tell the user to enable Write Mode using the toggle above the chat.`;
 
-  // 4 representative sample rows
-  const sample = rows.slice(0, 4);
+  // 2 representative sample rows — sensitive fields stripped before sending to Claude
+  const sample = rows.slice(0, 2).map(r => stripSensitiveFieldsFromRow(r as Record<string, unknown>));
+  const omittedFields = rows.length > 0
+    ? Object.keys(rows[0]).filter(k => isSensitiveField(k))
+    : [];
+
+  const wcFallbackBlock = `
+## Work & Capability — tool selection order
+When WC data is loaded, follow this order for EVERY WC question:
+1. **Use a domain WC tool if it fits** (highest confidence):
+   - \`analyze_activities\` — activity portfolio, automation/outsourcing candidates
+   - \`get_employee_activity_load\` — individual employee activity allocation
+   - \`get_critical_skills\` — single-point risks, low-coverage skills, supply/demand alerts
+   - \`analyze_skill_gaps\` — role-level skill gap analysis
+   - \`find_successors\` — ranked successor candidates for a role (weighted skill match)
+   - \`map_talent_to_need\` — employees matching a skill, activity, or role
+   - \`assess_succession_risks\` — org-wide succession risk scan
+2. **SQL fallback** — ONLY if no domain tool fits, or domain tool returned empty/insufficient results:
+   a. Call \`get_wc_schema\` to inspect column names, PKs, FK join paths, and example queries
+   b. Call \`run_wc_sql\` with a targeted SELECT; default LIMIT 25 enforced automatically
+   c. Explain what was queried and what it shows — do not overclaim
+3. **Never use SQL as the first path** when a domain tool clearly covers the question
+4. **WC SQL is evidence-gathering** — inferences from SQL results must include caveats ("based on available WC data only")
+
+## WC SQL fallback — join paths (verify exact names with get_wc_schema)
+- activity_assignments.activity_id = activity_library.activity_id
+- activity_assignments.employee_id → links to org data; use \`find_employees\` to resolve names
+- employee_skills.skill_id = skill_library.skill_id
+- role_skill_requirements.skill_id = skill_library.skill_id
+- activity_skill_requirements.skill_id = skill_library.skill_id
+- activity_skill_requirements.activity_id = activity_library.activity_id
+- **Do not assume an employee_name column in WC tables** — always resolve IDs via \`find_employees\`
+
+## WC SQL fallback — examples
+- "Which activities require Python?" → \`get_wc_schema\` → \`run_wc_sql\` joining activity_skill_requirements + skill_library + activity_library on skill_name LIKE '%Python%'
+- "Which skills required by the most roles?" → \`run_wc_sql\`: SELECT skill_id, COUNT(*) FROM role_skill_requirements GROUP BY skill_id ORDER BY COUNT(*) DESC
+- "Why did find_successors return no candidates for Director of Strategy?" → \`run_wc_sql\` COUNT(*) on role_skill_requirements for that role → COUNT(DISTINCT employee_id) from employee_skills → report the gap
+- "Employees with skill X assigned to activity Y?" → \`run_wc_sql\` joining employee_skills + activity_assignments`;
 
   return `You are an org analytics assistant embedded in an HR org-design tool. You help HR leaders, finance teams, and org designers understand org structure, headcount, compensation, and people data.
 
@@ -129,8 +166,9 @@ Enriched hierarchy fields (also queryable in \`data\`):
   - \`manager\`: string — manager's display name
 ${metricsBlock}
 
-## Sample rows (first 4)
+## Sample rows (first 2, sensitive fields omitted)
 ${JSON.stringify(sample, null, 2)}
+${omittedFields.length ? `Omitted sensitive fields (available client-side only): ${omittedFields.join(', ')}` : ''}
 
 ## Tool usage rules
 - Call \`get_metrics\` FIRST for org-wide aggregates (total headcount, avg span, depth, etc.) — it's instant
@@ -161,5 +199,5 @@ ${JSON.stringify(sample, null, 2)}
 - For person profiles, use a mini-report with clear sections
 - Format large numbers with commas: 1,234,567
 - Keep answers concise — no filler phrases like "Based on the data…" or "Great question!"
-${compBlock}${fieldBlock}${writeModeBlock}${scenarioPlanningBlock}`;
+${compBlock}${fieldBlock}${writeModeBlock}${scenarioPlanningBlock}${wcFallbackBlock}`;
 }
