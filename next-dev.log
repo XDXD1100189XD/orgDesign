@@ -72,3 +72,109 @@
  ✓ Compiled /_not-found in 2.5s (2025 modules)
  GET /serviceworker.js 404 in 3305ms
  GET /serviceworker.js 404 in 219ms
+ GET / 200 in 1485ms
+ GET /serviceworker.js 404 in 176ms
+ GET /serviceworker.js 404 in 128ms
+ GET / 200 in 144ms
+ GET /serviceworker.js 404 in 117ms
+ GET /serviceworker.js 404 in 209ms
+ GET / 200 in 170ms
+ GET /serviceworker.js 404 in 108ms
+ GET /serviceworker.js 404 in 169ms
+ ✓ Compiled in 1761ms (2020 modules)
+ ✓ Compiled in 482ms (2020 modules)
+ ✓ Compiled in 403ms (2020 modules)
+ GET / 200 in 1734ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1604ms (2025 modules)
+ GET /serviceworker.js 404 in 2133ms
+ GET /serviceworker.js 404 in 94ms
+ ○ Compiling /api/ai/chat ...
+ ✓ Compiled /api/ai/chat in 2.5s (2116 modules)
+ POST /api/ai/chat 200 in 4762ms
+ POST /api/ai/chat 200 in 7729ms
+ POST /api/ai/chat 200 in 2129ms
+ POST /api/ai/chat 200 in 6723ms
+ POST /api/ai/chat 200 in 9462ms
+ POST /api/ai/chat 200 in 6566ms
+ POST /api/ai/chat 200 in 1904ms
+ POST /api/ai/chat 200 in 1451ms
+ POST /api/ai/chat 200 in 1342ms
+ POST /api/ai/chat 200 in 5255ms
+ ✓ Compiled in 1606ms (2021 modules)
+ ✓ Compiled in 852ms (2021 modules)
+ ✓ Compiled in 728ms (2021 modules)
+ GET / 200 in 1597ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1650ms (2026 modules)
+ GET /serviceworker.js 404 in 2146ms
+ GET /serviceworker.js 404 in 96ms
+ ○ Compiling /api/ai/chat ...
+ ✓ Compiled /api/ai/chat in 1349ms (1152 modules)
+ POST /api/ai/chat 200 in 3295ms
+ POST /api/ai/chat 200 in 1420ms
+ POST /api/ai/chat 200 in 3255ms
+ POST /api/ai/chat 200 in 2152ms
+ POST /api/ai/chat 200 in 1457ms
+ POST /api/ai/chat 200 in 1434ms
+ POST /api/ai/chat 200 in 6070ms
+ POST /api/ai/chat 200 in 1751ms
+ POST /api/ai/chat 200 in 6123ms
+ POST /api/ai/chat 200 in 1937ms
+ POST /api/ai/chat 200 in 4583ms
+ POST /api/ai/chat 200 in 2439ms
+ POST /api/ai/chat 200 in 5389ms
+ POST /api/ai/chat 200 in 1548ms
+ POST /api/ai/chat 200 in 1733ms
+ POST /api/ai/chat 200 in 5171ms
+ ✓ Compiled in 1009ms (2021 modules)
+ ✓ Compiled in 388ms (2023 modules)
+ ✓ Compiled in 684ms (2023 modules)
+ ✓ Compiled in 710ms (2023 modules)
+ ✓ Compiled in 1066ms (2023 modules)
+ GET / 200 in 2284ms
+ ✓ Compiled in 1284ms (2023 modules)
+ ✓ Compiled in 732ms (2023 modules)
+ ✓ Compiled in 763ms (2023 modules)
+ ✓ Compiled in 551ms (2023 modules)
+ ✓ Compiled in 2.1s (2023 modules)
+ ✓ Compiled in 1264ms (2023 modules)
+ ✓ Compiled in 1321ms (2023 modules)
+ ✓ Compiled in 732ms (2023 modules)
+ ✓ Compiled in 731ms (2023 modules)
+ ✓ Compiled in 1676ms (2023 modules)
+ ✓ Compiled in 450ms (2023 modules)
+ ✓ Compiled in 695ms (2023 modules)
+ ✓ Compiled in 371ms (2023 modules)
+ ✓ Compiled in 450ms (2023 modules)
+ ✓ Compiled in 410ms (2023 modules)
+ ✓ Compiled in 459ms (2023 modules)
+ ✓ Compiled in 363ms (2023 modules)
+ ✓ Compiled in 328ms (2023 modules)
+ ✓ Compiled in 2.8s (2023 modules)
+ ✓ Compiled in 644ms (2023 modules)
+ ✓ Compiled in 823ms (2023 modules)
+ ✓ Compiled in 496ms (2023 modules)
+ ✓ Compiled in 3.1s (2522 modules)
+ ✓ Compiled in 1150ms (2522 modules)
+ ✓ Compiled in 587ms (2522 modules)
+ ✓ Compiled in 650ms (2522 modules)
+ ✓ Compiled in 385ms (2522 modules)
+ ✓ Compiled in 312ms (2522 modules)
+ ✓ Compiled in 355ms (2522 modules)
+ ✓ Compiled in 364ms (2522 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.1s (2527 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1613ms (2873 modules)
+ GET / 500 in 7307ms
+ GET / 500 in 408ms
+ GET / 500 in 947ms
+ GET / 500 in 401ms
+ GET /serviceworker.js 500 in 1184ms
+ GET /serviceworker.js 500 in 413ms
+ GET /serviceworker.js 500 in 820ms
+ GET /serviceworker.js 500 in 374ms
+ GET /serviceworker.js 500 in 573ms
+ GET /serviceworker.js 500 in 301ms
+[?25h

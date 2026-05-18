@@ -1,0 +1,144 @@
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\server\vendor-chunks\recharts.js'
+    at <unknown> (C:\Users\hp\Desktop\org dashboard\.next\server\app\page.js:884:47)
+    at Object.<anonymous> (C:\Users\hp\Desktop\org dashboard\.next\server\app\page.js:887:3) {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\server\\vendor-chunks\\recharts.js',
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\server\vendor-chunks\recharts.js'
+    at <unknown> (C:\Users\hp\Desktop\org dashboard\.next\server\app\page.js:884:47)
+    at Object.<anonymous> (C:\Users\hp\Desktop\org dashboard\.next\server\app\page.js:887:3) {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\server\\vendor-chunks\\recharts.js',
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\hp\Desktop\org dashboard\.next\routes-manifest.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\hp\\Desktop\\org dashboard\\.next\\routes-manifest.json'
+}

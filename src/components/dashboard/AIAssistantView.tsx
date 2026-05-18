@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { CompMatrix, DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
 import type { ExcelRow } from '@/lib/parseExcel';
+import type { PendingData } from '@/lib/story/types';
 import { buildSystemContext } from '@/lib/aiContext';
 import { isSensitiveField, summarizeRowsForAI } from '@/lib/aiDataMinimization';
 import { validateAndSimulate, applyActions } from '@/lib/scenarioPlanner';
@@ -270,10 +271,32 @@ function renderMarkdown(text: string): React.ReactNode[] {
 
 // ── Inline result table ────────────────────────────────────────────────────────
 
-function ResultTable({ rows }: { rows: Record<string, unknown>[] }) {
+function ResultTable({ rows, onAddToStory }: { rows: Record<string, unknown>[]; onAddToStory?: (data: PendingData) => void; }) {
   const headers = Object.keys(rows[0] ?? {});
   return (
     <div className={styles.resultTableWrap}>
+      {onAddToStory && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <button
+            onClick={() => {
+              const now = new Date().toISOString();
+              onAddToStory({
+                rows: rows.slice(0, 200) as Record<string, unknown>[],
+                columns: headers,
+                source: { type: 'ai-tool', label: 'AI Assistant result', capturedAt: now },
+                label: `AI result: ${headers.slice(0, 3).join(', ')}${headers.length > 3 ? '…' : ''}`,
+              });
+            }}
+            style={{
+              background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+              borderRadius: 3, padding: '2px 8px', fontSize: 10,
+              color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+            }}
+          >
+            + Story
+          </button>
+        </div>
+      )}
       <table className={styles.resultTable}>
         <thead><tr>{headers.map(h => <th key={h} className={styles.rtTh}>{h}</th>)}</tr></thead>
         <tbody>
@@ -349,6 +372,7 @@ interface Props {
   changeLog?: import('@/lib/changeManagement').ChangeRecord[];
   graphVersion?: number;
   variant?: 'full' | 'pane';
+  onAddToStory?: (data: PendingData) => void;
 }
 
 const SUGGESTIONS = [
@@ -517,7 +541,7 @@ function sanitizeToolResultForAI(name: string, result: unknown): unknown {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is', onRowsChange, onCreateChart, onDataChange, onCompMatrixChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full' }: Props) {
+export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is', onRowsChange, onCreateChart, onDataChange, onCompMatrixChange, toBeData, onRowMutation, onFieldMapping, columnMapping, changeLog = [], graphVersion = 0, variant = 'full', onAddToStory }: Props) {
   const [displayMsgs,    setDisplayMsgs]    = useState<DisplayMsg[]>([]);
   const [rawMsgs,        setRawMsgs]        = useState<RawMessage[]>([]);
   const [input,          setInput]          = useState('');
@@ -2125,7 +2149,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
               return (
                 <div key={msg.id} className={styles.toolResultRow}>
                   <span className={styles.resultMeta}>{msg.rowCount?.toLocaleString()} row{msg.rowCount !== 1 ? 's' : ''} returned</span>
-                  <ResultTable rows={msg.rows} />
+                  <ResultTable rows={msg.rows} onAddToStory={onAddToStory} />
                 </div>
               );
             }

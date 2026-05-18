@@ -1,13 +1,15 @@
 "use client";
 
 import type { DashboardData } from "@/lib/types";
+import type { PendingData } from "@/lib/story/types";
 import styles from "./SummaryView.module.css";
 
 interface Props {
   data: DashboardData;
+  onAddToStory?: (data: PendingData) => void;
 }
 
-export default function SummaryView({ data }: Props) {
+export default function SummaryView({ data, onAddToStory }: Props) {
   const { metrics: m, vertices: V } = data;
   const tot = m.basic.total_nodes;
   const M = m.management.manager_count;
@@ -185,7 +187,30 @@ export default function SummaryView({ data }: Props) {
       {/* Row 3: Span distribution + Funnel */}
       <div className={styles.row3}>
         <div className={styles.panel}>
-          <h3 className={styles.panelTitle}>Span Distribution</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+            <h3 className={styles.panelTitle} style={{ margin: 0 }}>Span Distribution</h3>
+            {onAddToStory && (
+              <button
+                onClick={() => {
+                  const now = new Date().toISOString();
+                  onAddToStory({
+                    rows: spanBuckets.map(b => ({ 'Direct Reports': b.label, Managers: b.count })),
+                    columns: ['Direct Reports', 'Managers'],
+                    source: { type: 'org-metrics', label: 'Span Distribution', capturedAt: now },
+                    label: 'Span Distribution',
+                  });
+                }}
+                style={{
+                  background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                  borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                  color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                + Story
+              </button>
+            )}
+          </div>
           <div className={styles.spanChart}>
             {spanBuckets.map((b) => (
               <div key={b.label} className={styles.spanCol}>
@@ -294,9 +319,37 @@ export default function SummaryView({ data }: Props) {
 
       {/* Row 4: Open vs Filled per Layer */}
       <div className={styles.panel} style={{ marginTop: 12 }}>
-        <h3 className={styles.panelTitle}>
-          Layer Composition — Open vs Filled Roles
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+          <h3 className={styles.panelTitle} style={{ margin: 0 }}>
+            Layer Composition — Open vs Filled Roles
+          </h3>
+          {onAddToStory && (
+            <button
+              onClick={() => {
+                const now = new Date().toISOString();
+                onAddToStory({
+                  rows: levelData.map(lc => ({
+                    Level: `L${lc.level}`,
+                    Total: lc.total,
+                    Filled: lc.filled,
+                    Open: lc.open,
+                  })),
+                  columns: ['Level', 'Total', 'Filled', 'Open'],
+                  source: { type: 'org-metrics', label: 'Layer Composition', capturedAt: now },
+                  label: 'Layer Composition — Open vs Filled Roles',
+                });
+              }}
+              style={{
+                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              + Story
+            </button>
+          )}
+        </div>
         <div className={styles.layerTable}>
           <div className={styles.layerHeader}>
             <span className={styles.layerHCell}>Level</span>

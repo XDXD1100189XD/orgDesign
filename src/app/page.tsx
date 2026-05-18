@@ -102,6 +102,8 @@ const AIAssistantView = dynamic(
 import ActivityAnalysisView from "@/components/dashboard/ActivityAnalysisView";
 import SkillsCapabilityView from "@/components/dashboard/SkillsCapabilityView";
 import SuccessionPlanningView from "@/components/dashboard/SuccessionPlanningView";
+import { StoryView } from "@/components/story/StoryView";
+import type { StoryDocument, PendingData } from "@/lib/story/types";
 
 type Tab =
   | "summary"
@@ -111,13 +113,11 @@ type Tab =
   | "advanced"
   | "studio"
   | "comp"
-  | "ai"
-  | "work-capability"
-  | "activity-analysis"
-  | "skills-capability"
-  | "succession-planning";
+  | "workforce-intelligence"
+  | "story";
 type StateSlice = "as-is" | "to-be";
 type CompTarget = StateSlice | "both";
+type WorkforceSubTab = "work-capability" | "activity-analysis" | "skills-capability" | "succession-planning";
 
 const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "summary", num: "01", label: "Summary" },
@@ -125,18 +125,9 @@ const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "studio", num: "03", label: "Analytics Studio" },
   { key: "tree", num: "04", label: "Hierarchy" },
   { key: "table", num: "05", label: "Employees" },
-  { key: "comp", num: "06", label: "Comp Setup" },
-  { key: "ai", num: "08", label: "AI Assistant" },
-  { key: "work-capability", num: "09", label: "Work & Capability" },
-  { key: "activity-analysis", num: "10", label: "Activity Analysis" },
-  { key: "skills-capability", num: "11", label: "Skills & Capability" },
-  { key: "succession-planning", num: "12", label: "Succession Planning" },
+  { key: "workforce-intelligence", num: "09", label: "Workforce Intelligence" },
+  { key: "story", num: "13", label: "Story" },
 ];
-const READINESS_TAB = {
-  key: "readiness" as Tab,
-  num: "07",
-  label: "Data Readiness",
-};
 const ORG_DATASET_STORAGE_KEY = "org-dashboard:dataset:v1";
 
 const toOrgState = (slice: StateSlice): EditableOrgStateId =>
@@ -202,18 +193,23 @@ export default function HomePage() {
   // ── Graph version — incremented on every row/hierarchy mutation ──
   const [graphVersion, setGraphVersion] = useState(0);
 
+  // ── Story builder ──
+  const [storyDoc, setStoryDoc] = useState<StoryDocument | null>(null);
+  const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [libraryItems, setLibraryItems] = useState<PendingData[]>([]);
+  const [libraryToast, setLibraryToast] = useState<string | null>(null);
+
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("summary");
-  const [downloading] = useState(false);
+  const [showAIFloat, setShowAIFloat] = useState(false);
+  const [workforceSubTab, setWorkforceSubTab] = useState<WorkforceSubTab>("work-capability");
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
   const [compTarget, setCompTarget] = useState<CompTarget>("as-is");
   const [tableJumpId, setTableJumpId] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
-  const TABS = excelFile
-    ? [...BASE_TABS.slice(0, 6), READINESS_TAB, ...BASE_TABS.slice(6)]
-    : BASE_TABS;
+  const TABS = BASE_TABS;
 
   const syncLegacyFromDataset = useCallback((next: OrgDataset) => {
     setData(next.states.asIs.data);
@@ -1001,6 +997,17 @@ export default function HomePage() {
     ],
   );
 
+  // ── Story builder ──
+  const handleAddToStory = useCallback((data: PendingData) => {
+    if (libraryItems.length >= 10) {
+      setLibraryToast('Library is full (10/10). Remove an item from the library first.');
+      setTimeout(() => setLibraryToast(null), 3500);
+      return;
+    }
+    setLibraryItems(prev => [...prev, data]);
+    setActiveTab('story');
+  }, [libraryItems]);
+
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
     if (dataset) {
@@ -1211,10 +1218,6 @@ export default function HomePage() {
     [changeLog, syncLegacyFromDataset],
   );
 
-  const handleDownload = async () => {
-    return;
-  };
-
   if (!data) {
     return (
       <>
@@ -1305,34 +1308,38 @@ export default function HomePage() {
           <div className={styles.brandName}>Org Analytics · Menu Tech</div>
         </div>
         <div className={styles.headerRight}>
-          <div className={styles.crumbs}>
-            Portfolio <b>· Item Vista</b>
-          </div>
+          {excelFile && (
+            <>
+              <button
+                className={styles.changeLogBtn}
+                onClick={() => setActiveTab("readiness")}
+                title="View data quality and completeness report"
+              >
+                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="10" cy="10" r="8" />
+                  <path d="M10 6v4l2.5 2.5" />
+                </svg>
+                Data Readiness
+              </button>
+              <button
+                className={styles.changeLogBtn}
+                onClick={() => setActiveTab("comp")}
+                title="Compensation setup"
+              >
+                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="5" width="14" height="10" rx="1.5" />
+                  <path d="M7 10h6M10 7v6" />
+                </svg>
+                Comp Setup
+              </button>
+            </>
+          )}
           <button
             className={styles.changeLogBtn}
             onClick={() => setShowChangeDrawer(true)}
           >
             Change Log
             {changeLog.length > 0 && <span>{changeLog.length}</span>}
-          </button>
-          <button
-            className={`${styles.downloadBtn} ${downloading ? styles.spinning : ""}`}
-            onClick={handleDownload}
-            disabled={downloading}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            {downloading ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </header>
@@ -1411,7 +1418,7 @@ export default function HomePage() {
         data-view="summary"
         style={{ display: activeTab === "summary" ? "block" : "none" }}
       >
-        <SummaryView data={data} />
+        <SummaryView data={data} onAddToStory={handleAddToStory} />
       </div>
 
       {/* ── 02 Advanced Analytics — always As-Is ── */}
@@ -1423,6 +1430,7 @@ export default function HomePage() {
           data={data}
           file={excelFile}
           sourceRows={asIsHierarchyRows ?? undefined}
+          onAddToStory={handleAddToStory}
         />
       </div>
 
@@ -1471,6 +1479,7 @@ export default function HomePage() {
           }
           externalChartRequest={pendingChartRequest}
           workCapabilityDataset={workCapabilityDataset}
+          onAddToStory={handleAddToStory}
         />
       </div>
 
@@ -1592,6 +1601,7 @@ export default function HomePage() {
                   changeLog={changeLog}
                   graphVersion={graphVersion}
                   variant="pane"
+                  onAddToStory={handleAddToStory}
                 />
               </aside>
             </>
@@ -1756,103 +1766,216 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── 08 AI Assistant ── */}
-      {activeTab === "ai" && (
-        <div data-view="ai">
-          <AIAssistantView
-            data={aiData}
-            rows={aiRows ?? []}
-            toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
-            stateId={aiSlice}
-            onRowsChange={(rows, meta) =>
-              handleSharedRowsChange(rows, { ...meta, target: aiSlice })
+      {/* ── 09 Workforce Intelligence (merged section) ── */}
+      <div
+        data-view="workforce-intelligence"
+        style={{ display: activeTab === "workforce-intelligence" ? "block" : "none" }}
+      >
+        {/* Sub-tab navigation */}
+        <div style={{
+          display: 'flex', gap: 0,
+          borderBottom: '1px solid rgba(0,0,0,0.1)',
+          marginBottom: 24,
+          background: 'var(--cream, #f8f6f0)',
+        }}>
+          {(
+            [
+              { key: "work-capability", label: "Work & Capability" },
+              { key: "activity-analysis", label: "Activity Analysis" },
+              { key: "skills-capability", label: "Skills & Capability" },
+              { key: "succession-planning", label: "Succession Planning" },
+            ] as { key: WorkforceSubTab; label: string }[]
+          ).map((st) => (
+            <button
+              key={st.key}
+              onClick={() => setWorkforceSubTab(st.key)}
+              style={{
+                padding: '10px 20px',
+                background: 'none',
+                border: 'none',
+                borderBottom: workforceSubTab === st.key
+                  ? '2px solid var(--teal, #006b6b)'
+                  : '2px solid transparent',
+                color: workforceSubTab === st.key
+                  ? 'var(--teal, #006b6b)'
+                  : 'var(--slate-2, #6b7280)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: workforceSubTab === st.key ? 700 : 500,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sub-section content */}
+        <div style={{ display: workforceSubTab === "work-capability" ? "block" : "none" }}>
+          <WorkCapabilityIngestionPanel
+            dataset={workCapabilityDataset}
+            orgDataset={dataset}
+            orgRows={asIsMutatedRows ?? excelRows ?? []}
+            orgEmployeeIdColumn={
+              columnMapping?.["Employee ID"]?.column ?? "employee_id"
             }
-            onCreateChart={(req) => {
-              setPendingChartRequest(req);
-              setActiveTab("studio");
-            }}
-            onDataChange={handleCompDataChange}
-            onCompMatrixChange={handleAICompMatrixChange}
-            toBeData={toBeData}
-            onRowMutation={handleRowMutation}
-            onFieldMapping={handleFieldMapping}
+            onDatasetReady={setWorkCapabilityDataset}
+          />
+        </div>
+        <div style={{ display: workforceSubTab === "activity-analysis" ? "block" : "none" }}>
+          <ActivityAnalysisView
+            dataset={workCapabilityDataset}
+            orgRows={asIsMutatedRows ?? excelRows ?? []}
+            orgEmployeeIdColumn={
+              columnMapping?.["Employee ID"]?.column ?? "employee_id"
+            }
             columnMapping={columnMapping}
-            changeLog={changeLog}
-            graphVersion={graphVersion}
+          />
+        </div>
+        <div style={{ display: workforceSubTab === "skills-capability" ? "block" : "none" }}>
+          <SkillsCapabilityView
+            dataset={workCapabilityDataset}
+            orgRows={asIsMutatedRows ?? excelRows ?? []}
+            orgEmployeeIdColumn={
+              columnMapping?.["Employee ID"]?.column ?? "employee_id"
+            }
+            columnMapping={columnMapping}
+          />
+        </div>
+        <div style={{ display: workforceSubTab === "succession-planning" ? "block" : "none" }}>
+          <SuccessionPlanningView
+            dataset={workCapabilityDataset}
+            orgRows={asIsMutatedRows ?? excelRows ?? []}
+            orgEmployeeIdColumn={
+              columnMapping?.["Employee ID"]?.column ?? "employee_id"
+            }
+            columnMapping={columnMapping}
+            successionCandidates={successionCandidates}
+            onSuccessionCandidatesChange={setSuccessionCandidates}
+          />
+        </div>
+      </div>
+
+      {/* ── 13 Story ── */}
+      {activeTab === "story" && (
+        <div data-view="story">
+          <StoryView
+            doc={storyDoc}
+            setDoc={setStoryDoc}
+            activeSlideId={activeSlideId}
+            setActiveSlideId={setActiveSlideId}
+            libraryItems={libraryItems}
+            setLibraryItems={setLibraryItems}
           />
         </div>
       )}
-
-      {/* ── 09 Work & Capability ── */}
-      <div
-        data-view="work-capability"
-        style={{ display: activeTab === "work-capability" ? "block" : "none" }}
-      >
-        <WorkCapabilityIngestionPanel
-          dataset={workCapabilityDataset}
-          orgDataset={dataset}
-          orgRows={asIsMutatedRows ?? excelRows ?? []}
-          orgEmployeeIdColumn={
-            columnMapping?.["Employee ID"]?.column ?? "employee_id"
-          }
-          onDatasetReady={setWorkCapabilityDataset}
-        />
-      </div>
-
-      <div
-        data-view="activity-analysis"
-        style={{
-          display: activeTab === "activity-analysis" ? "block" : "none",
-        }}
-      >
-        <ActivityAnalysisView
-          dataset={workCapabilityDataset}
-          orgRows={asIsMutatedRows ?? excelRows ?? []}
-          orgEmployeeIdColumn={
-            columnMapping?.["Employee ID"]?.column ?? "employee_id"
-          }
-          columnMapping={columnMapping}
-        />
-      </div>
-
-      <div
-        data-view="skills-capability"
-        style={{
-          display: activeTab === "skills-capability" ? "block" : "none",
-        }}
-      >
-        <SkillsCapabilityView
-          dataset={workCapabilityDataset}
-          orgRows={asIsMutatedRows ?? excelRows ?? []}
-          orgEmployeeIdColumn={
-            columnMapping?.["Employee ID"]?.column ?? "employee_id"
-          }
-          columnMapping={columnMapping}
-        />
-      </div>
-
-      <div
-        data-view="succession-planning"
-        style={{
-          display: activeTab === "succession-planning" ? "block" : "none",
-        }}
-      >
-        <SuccessionPlanningView
-          dataset={workCapabilityDataset}
-          orgRows={asIsMutatedRows ?? excelRows ?? []}
-          orgEmployeeIdColumn={
-            columnMapping?.["Employee ID"]?.column ?? "employee_id"
-          }
-          columnMapping={columnMapping}
-          successionCandidates={successionCandidates}
-          onSuccessionCandidatesChange={setSuccessionCandidates}
-        />
-      </div>
 
       <footer className={styles.footer}>
         <div>Confidential · Internal Analytics · 2026</div>
         <div>menu-tech / item-vista · snapshot.v1</div>
       </footer>
+
+      {/* Library full toast */}
+      {libraryToast && (
+        <div style={{
+          position: 'fixed',
+          bottom: 88,
+          right: 28,
+          zIndex: 9997,
+          background: '#333',
+          color: '#fff',
+          padding: '10px 18px',
+          borderRadius: 6,
+          fontSize: 13,
+          fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+          pointerEvents: 'none',
+          maxWidth: 340,
+        }}>
+          {libraryToast}
+        </div>
+      )}
+
+      {/* ── Floating AI Chat Button ── */}
+      <button
+        onClick={() => setShowAIFloat((f) => !f)}
+        title={showAIFloat ? "Close AI Assistant" : "Open AI Assistant"}
+        style={{
+          position: 'fixed',
+          bottom: 28,
+          right: 28,
+          zIndex: 9998,
+          width: 52,
+          height: 52,
+          borderRadius: '50%',
+          background: showAIFloat ? 'var(--ink, #1a1d20)' : 'var(--teal, #006b6b)',
+          color: '#fff',
+          border: 'none',
+          cursor: 'pointer',
+          boxShadow: '0 4px 24px rgba(0,107,107,0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+          transition: 'background 0.2s, transform 0.15s',
+        }}
+      >
+        {showAIFloat ? '✕' : (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        )}
+      </button>
+
+      {/* ── Floating AI Panel ── */}
+      {showAIFloat && (
+        <div style={{
+          position: 'fixed',
+          bottom: 92,
+          right: 24,
+          zIndex: 9995,
+          width: 460,
+          height: 620,
+          background: '#fff',
+          borderRadius: 12,
+          boxShadow: '0 12px 48px rgba(0,0,0,0.22)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          border: '1px solid rgba(0,0,0,0.1)',
+        }}>
+          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+            <AIAssistantView
+              data={aiData}
+              rows={aiRows ?? []}
+              toBeRows={toBeMutatedRows ?? asIsMutatedRows ?? excelRows}
+              stateId={aiSlice}
+              onRowsChange={(rows, meta) =>
+                handleSharedRowsChange(rows, { ...meta, target: aiSlice })
+              }
+              onCreateChart={(req) => {
+                setPendingChartRequest(req);
+                setActiveTab("studio");
+                setShowAIFloat(false);
+              }}
+              onDataChange={handleCompDataChange}
+              onCompMatrixChange={handleAICompMatrixChange}
+              toBeData={toBeData}
+              onRowMutation={handleRowMutation}
+              onFieldMapping={handleFieldMapping}
+              columnMapping={columnMapping}
+              changeLog={changeLog}
+              graphVersion={graphVersion}
+              variant="pane"
+              onAddToStory={handleAddToStory}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

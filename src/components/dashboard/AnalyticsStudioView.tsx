@@ -18,6 +18,7 @@ import type { DashboardData, AIChartRequest, AggFn as SharedAggFn, ChartType as 
 import type { WorkCapabilityDataset } from '@/lib/workCapabilityDataset';
 import { fmtNum } from '@/lib/costSchema';
 import styles from './AnalyticsStudioView.module.css';
+import type { PendingData } from '@/lib/story/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ interface Props {
   onRowsChange?: (rows: ExcelRow[] | null, meta?: { source: 'analytics-sql' | 'analytics-reset'; query?: string; affected?: number }) => void;
   externalChartRequest?: AIChartRequest | null;
   workCapabilityDataset?: WorkCapabilityDataset | null;
+  onAddToStory?: (data: PendingData) => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -770,7 +772,7 @@ function WcSchemaMapSvg({ hasOrg }: { hasOrg: boolean }) {
   );
 }
 
-export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest, workCapabilityDataset }: Props) {
+export default function AnalyticsStudioView({ file, data, rows: propRows, onRowsChange, externalChartRequest, workCapabilityDataset, onAddToStory }: Props) {
   const [rows, setRows]           = useState<ExcelRow[]>([]);
   const [fields, setFields]       = useState<string[]>([]);
   const [derivedFields, setDerivedFields] = useState<string[]>([]);
@@ -1220,9 +1222,37 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
             <div className={styles.tableWrap}>
               <div className={styles.tableWrapHeader}>
                 <span className={styles.tableWrapTitle}>Pivot Table</span>
-                <button className={styles.exportBtn} onClick={() => exportPivotCsv(pivotData, config)}>
-                  ↓ Export CSV
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {onAddToStory && (
+                    <button
+                      className={styles.exportBtn}
+                      title="Add this pivot table to Story — configure before placing"
+                      onClick={() => {
+                        const now = new Date().toISOString();
+                        onAddToStory({
+                          rows: pivotData.rows.map(r => ({
+                            [config.rowField ?? 'category']: r.rowKey,
+                            ...r.values,
+                          })) as Record<string, unknown>[],
+                          columns: [config.rowField ?? 'category', ...pivotData.colKeys].filter(Boolean),
+                          source: {
+                            type: 'analytics-studio',
+                            label: `Pivot: ${config.rowField ?? ''}${config.colField ? ` × ${config.colField}` : ''}`,
+                            capturedAt: now,
+                          },
+                          label: `Pivot: ${config.rowField ?? 'table'}`,
+                          pivotData,
+                          pivotConfig: config,
+                        });
+                      }}
+                    >
+                      + Story
+                    </button>
+                  )}
+                  <button className={styles.exportBtn} onClick={() => exportPivotCsv(pivotData, config)}>
+                    ↓ Export CSV
+                  </button>
+                </div>
               </div>
               <div className={styles.ptScroll}>
                 <table className={styles.pt}>
@@ -1332,6 +1362,35 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                       >
                         Delete
                       </button>
+                      {onAddToStory && (
+                        <button
+                          className={styles.savedLoad}
+                          title="Add this chart to Story — configure before placing"
+                          onClick={() => {
+                            const now = new Date().toISOString();
+                            onAddToStory({
+                              rows: view.pivotData.rows.map(r => ({
+                                [view.config.rowField ?? 'category']: r.rowKey,
+                                ...r.values,
+                              })) as Record<string, unknown>[],
+                              columns: [
+                                view.config.rowField ?? 'category',
+                                ...(view.pivotData.colKeys),
+                              ].filter(Boolean),
+                              source: {
+                                type: 'analytics-studio',
+                                label: `Saved view: ${view.name}`,
+                                capturedAt: now,
+                              },
+                              label: `Chart: ${view.name}`,
+                              pivotData: view.pivotData,
+                              pivotConfig: view.config,
+                            });
+                          }}
+                        >
+                          + Story
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1473,9 +1532,33 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                         {sqlResult.rowCount.toLocaleString()} row{sqlResult.rowCount !== 1 ? 's' : ''} returned
                         {sqlResult.rowCount > 200 && <span className={styles.sqlTruncNote}> · showing first 200</span>}
                       </span>
-                      <button className={styles.exportBtn} onClick={() => exportSqlCsv(sqlResult.data)}>
-                        ↓ Export CSV
-                      </button>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className={styles.exportBtn} onClick={() => exportSqlCsv(sqlResult.data)}>
+                          ↓ Export CSV
+                        </button>
+                        {onAddToStory && sqlResult.data.length > 0 && (
+                          <button
+                            className={styles.exportBtn}
+                            title="Add this data to Story — configure before placing"
+                            onClick={() => {
+                              const now = new Date().toISOString();
+                              const columns = Object.keys(sqlResult.data[0] ?? {});
+                              onAddToStory({
+                                rows: sqlResult.data.slice(0, 200) as Record<string, unknown>[],
+                                columns,
+                                source: {
+                                  type: 'sql-query',
+                                  label: `SQL: ${sqlQuery.trim().slice(0, 80)}`,
+                                  capturedAt: now,
+                                },
+                                label: `SQL: ${sqlQuery.trim().slice(0, 60)}…`,
+                              });
+                            }}
+                          >
+                            + Story
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {sqlResult.data.length > 0 ? (
                       <div className={styles.sqlTableScroll}>

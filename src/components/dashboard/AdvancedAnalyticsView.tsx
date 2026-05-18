@@ -11,6 +11,7 @@ import {
   detectCostColumns, detectColumn, fmtNum,
 } from '@/lib/costSchema';
 import styles from './AdvancedAnalyticsView.module.css';
+import type { PendingData } from '@/lib/story/types';
 
 const FTE_ALIASES = [
   'fte', 'full_time_equivalent', 'fulltime_equivalent', 'fte_count', 'headcount_fte',
@@ -470,9 +471,10 @@ interface Props {
   data: DashboardData;
   file?: File | null;
   sourceRows?: ExcelRow[];
+  onAddToStory?: (data: PendingData) => void;
 }
 
-export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props) {
+export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToStory }: Props) {
   const [rows, setRows] = useState<ExcelRow[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
@@ -574,6 +576,35 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props)
         <SpanChart layerStats={structural.layerStats} />
 
         {/* Layer table */}
+        {onAddToStory && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+            <button
+              onClick={() => {
+                const now = new Date().toISOString();
+                onAddToStory({
+                  rows: structural.layerStats.map(l => ({
+                    Layer: `L${l.layer}`,
+                    Managers: l.managerCount,
+                    Min: l.min,
+                    Max: l.max,
+                    Median: l.med,
+                    Avg: l.avg,
+                  })),
+                  columns: ['Layer', 'Managers', 'Min', 'Max', 'Median', 'Avg'],
+                  source: { type: 'org-metrics', label: 'Span of Control by Layer', capturedAt: now },
+                  label: 'Span of Control by Layer',
+                });
+              }}
+              style={{
+                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+              }}
+            >
+              + Story
+            </button>
+          </div>
+        )}
         <div className={styles.dataTable}>
           <div className={styles.dtHead}>
             <div className={styles.dtCell}>Layer</div>
@@ -707,6 +738,36 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows }: Props)
           sub="Headcount, open roles, span of control, depth, and cost per FTE grouped by department."
         />
 
+        {onAddToStory && deptAnalysis.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+            <button
+              onClick={() => {
+                const now = new Date().toISOString();
+                onAddToStory({
+                  rows: deptAnalysis.map(r => ({
+                    Department: r.dept,
+                    Headcount: r.headcount,
+                    FTE: r.fte,
+                    'Open Roles': r.openRoles,
+                    'Avg Span': r.avgSpan ?? '—',
+                    'Max Depth': r.maxDepth,
+                    'Cost/FTE': r.costPerFte ?? '—',
+                  })),
+                  columns: ['Department', 'Headcount', 'FTE', 'Open Roles', 'Avg Span', 'Max Depth', 'Cost/FTE'],
+                  source: { type: 'org-metrics', label: 'Department Analysis', capturedAt: now },
+                  label: 'Department Analysis',
+                });
+              }}
+              style={{
+                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+              }}
+            >
+              + Story
+            </button>
+          </div>
+        )}
         <div className={styles.dataTable}>
           <div className={styles.dtHead}>
             <div className={styles.dtCell} style={{ flex: 2 }}>Department</div>
