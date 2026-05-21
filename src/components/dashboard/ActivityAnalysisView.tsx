@@ -19,6 +19,8 @@ type AnalysisProps = {
   orgRows: ExcelRow[];
   orgEmployeeIdColumn: string;
   columnMapping: ColumnMapping | null;
+  embeddedMode?: boolean;
+  embeddedSection?: "all" | "category-charts" | "portfolio-workload";
 };
 
 const formatPct = (value: number) => `${value.toFixed(0)}%`;
@@ -85,6 +87,8 @@ export default function ActivityAnalysisView({
   orgRows,
   orgEmployeeIdColumn,
   columnMapping,
+  embeddedMode = false,
+  embeddedSection = "all",
 }: AnalysisProps) {
   const [expandedSections, setExpandedSections] = useState<Set<DrilldownId>>(new Set());
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
@@ -262,6 +266,7 @@ export default function ActivityAnalysisView({
   };
 
   if (!dataset || !portfolio) {
+    if (embeddedMode) return null;
     return (
       <section className={styles.workCapabilityPanel}>
         <div className={styles.workCapabilityHeader}>
@@ -283,11 +288,13 @@ export default function ActivityAnalysisView({
   const highSavingCount = automationCandidates.filter((a) => a.automationSaving >= highSavingThreshold).length;
   const topAutoCandidate = automationCandidates[0] ?? null;
   const highCritHighSaving = riskSavingMatrix.rows[0]?.high ?? 0;
+  const showCategoryCharts = !embeddedMode || embeddedSection === "all" || embeddedSection === "category-charts";
+  const showPortfolioWorkload = !embeddedMode || embeddedSection === "all" || embeddedSection === "portfolio-workload";
 
   return (
     <section className={styles.workCapabilityPanel}>
       {/* Header */}
-      <div className={styles.workCapabilityHeader}>
+      {!embeddedMode && <div className={styles.workCapabilityHeader}>
         <div>
           <p className={styles.workCapabilityKicker}>Activity Analysis</p>
           <h2>Activity Analysis</h2>
@@ -296,23 +303,23 @@ export default function ActivityAnalysisView({
           </p>
         </div>
         <button className={styles.workCapabilityImportBtn} onClick={handleExport}>Export CSV</button>
-      </div>
+      </div>}
 
       {/* KPI strip */}
-      <div className={styles.workCapabilityKpiStrip} style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
+      {!embeddedMode && <div className={styles.workCapabilityKpiStrip} style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
         <div className={styles.workCapabilityKpiCard}><span>Mapped cost</span><strong>{fmtCost(portfolio.kpis.totalMappedCost)}</strong></div>
         <div className={styles.workCapabilityKpiCard}><span>Mapped FTE</span><strong>{portfolio.kpis.totalMappedFTE.toFixed(1)}</strong></div>
         <div className={styles.workCapabilityKpiCard}><span>Activities</span><strong>{portfolio.kpis.totalActivities.toLocaleString()}</strong></div>
         <div className={styles.workCapabilityKpiCard}><span>People assigned</span><strong>{portfolio.kpis.totalAssignedPeople.toLocaleString()}</strong></div>
         <div className={styles.workCapabilityKpiCard}><span>Ownership gaps</span><strong>{portfolio.kpis.ownershipGaps.toLocaleString()}</strong></div>
         <div className={styles.workCapabilityKpiCard}><span>Automation saving</span><strong>{fmtCost(portfolio.kpis.automationSaving)}</strong></div>
-      </div>
+      </div>}
 
       {/* Always-visible diagnostic overview */}
-      <div style={{ display: "grid", gap: 16, marginTop: 18 }}>
+      <div style={{ display: "grid", gap: 16, marginTop: embeddedMode ? 0 : 18 }}>
 
         {/* Work concentration */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {showCategoryCharts && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <section className={styles.workCapabilityPanel}>
             <strong>Cost by category</strong>
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
@@ -341,8 +348,9 @@ export default function ActivityAnalysisView({
               ))}
             </div>
           </section>
-        </div>
+        </div>}
 
+        {!embeddedMode && <>
         {/* Delivery risk + Automation */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <section className={styles.workCapabilityPanel}>
@@ -430,10 +438,11 @@ export default function ActivityAnalysisView({
             </div>
           </section>
         )}
+        </>}
       </div>
 
       {/* Activity Portfolio + People & Workload — always visible, side by side */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+      {showPortfolioWorkload && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: embeddedMode ? 0 : 16 }}>
 
         {/* ── Activity Portfolio ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -650,10 +659,10 @@ export default function ActivityAnalysisView({
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Drilldown sections — Ownership & Automation only */}
-      <div style={{ marginTop: 24, display: "grid", gap: 8 }}>
+      {!embeddedMode && <div style={{ marginTop: 24, display: "grid", gap: 8 }}>
         {DRILLDOWN_SECTIONS.map(({ id, label }) => {
           const isOpen = expandedSections.has(id);
           return (
@@ -1010,7 +1019,7 @@ export default function ActivityAnalysisView({
             </div>
           );
         })}
-      </div>
+      </div>}
     </section>
   );
 }

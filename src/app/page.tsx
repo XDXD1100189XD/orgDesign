@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import {
   computeStateMetrics,
   fmtCost,
@@ -33,6 +33,16 @@ import {
   type OrgDataset,
   type OrgMutationSource,
 } from "@/lib/orgDataset";
+import {
+  createSnapshotPayload,
+  decryptSnapshot,
+  encryptSnapshot,
+  type OfflineSnapshotPayload,
+} from "@/lib/offlineSnapshot";
+import {
+  NAVIGATION_LOADING_DURATION_MS,
+  getNavigationLoadingMessage,
+} from "@/lib/navigationLoading";
 import {
   Background,
   Controls,
@@ -117,7 +127,7 @@ type Tab =
   | "story";
 type StateSlice = "as-is" | "to-be";
 type CompTarget = StateSlice | "both";
-type WorkforceSubTab = "work-capability" | "activity-analysis" | "skills-capability" | "succession-planning";
+type WorkforceSubTab = "activity-analysis" | "talent-mapping";
 
 const BASE_TABS: { key: Tab; num: string; label: string }[] = [
   { key: "summary", num: "01", label: "Summary" },
@@ -201,13 +211,20 @@ export default function HomePage() {
 
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("summary");
+  const [navigationLoadingMessage, setNavigationLoadingMessage] = useState<string | null>(null);
   const [showAIFloat, setShowAIFloat] = useState(false);
-  const [workforceSubTab, setWorkforceSubTab] = useState<WorkforceSubTab>("work-capability");
+  const [workforceSubTab, setWorkforceSubTab] = useState<WorkforceSubTab>("activity-analysis");
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
   const [compTarget, setCompTarget] = useState<CompTarget>("as-is");
   const [tableJumpId, setTableJumpId] = useState<string | null>(null);
+  const [snapshotSourceFiles, setSnapshotSourceFiles] = useState<{
+    orgFileName?: string | null;
+    toBeFileName?: string | null;
+  }>({});
   const shellRef = useRef<HTMLDivElement>(null);
+  const navigationLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigationSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const TABS = BASE_TABS;
 
@@ -229,6 +246,17 @@ export default function HomePage() {
     } catch {
       // Storage access can fail in private mode; uploaded data still lives in memory.
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (navigationLoadingTimerRef.current) {
+        clearTimeout(navigationLoadingTimerRef.current);
+      }
+      if (navigationSwitchTimerRef.current) {
+        clearTimeout(navigationSwitchTimerRef.current);
+      }
+    };
   }, []);
 
   const commitDataset = useCallback(
@@ -293,6 +321,152 @@ export default function HomePage() {
     ],
   );
 
+  const restoreFromOfflineSnapshot = useCallback(
+    (snapshot: OfflineSnapshotPayload) => {
+      const hasToBe = Boolean(snapshot.dataset?.states.toBe ?? snapshot.toBeData);
+      const nextStudioSlice =
+        snapshot.ui.studioSlice === "to-be" && hasToBe ? "to-be" : "as-is";
+      const nextTableSlice =
+        snapshot.ui.tableSlice === "to-be" && hasToBe ? "to-be" : "as-is";
+      const nextCompTarget =
+        snapshot.ui.compTarget === "to-be" && !hasToBe
+          ? "as-is"
+          : snapshot.ui.compTarget;
+
+      if (snapshot.dataset) {
+        setDataset(snapshot.dataset);
+        syncLegacyFromDataset(snapshot.dataset);
+      } else {
+        setDataset(null);
+        setData(snapshot.data);
+        setToBeData(snapshot.toBeData);
+        setExcelRows(snapshot.excelRows);
+        setExcelHeaders(snapshot.excelHeaders);
+        setColumnMapping(snapshot.columnMapping);
+        setAsIsMutatedRows(snapshot.asIsMutatedRows);
+        setToBeMutatedRows(snapshot.toBeMutatedRows);
+        setChangeLog(snapshot.changeLog);
+        setGraphVersion((version) => version + 1);
+      }
+
+      setExcelFile(null);
+      setToBeFile(null);
+      setSnapshotSourceFiles(snapshot.sourceFiles);
+      setWorkCapabilityDataset(snapshot.workCapabilityDataset);
+      setSuccessionCandidates(snapshot.successionCandidates);
+      setStoryDoc(snapshot.storyDoc);
+      setActiveSlideId(snapshot.activeSlideId);
+      setLibraryItems(snapshot.libraryItems);
+      setNavigationLoadingMessage(null);
+      setActiveTab(snapshot.ui.activeTab);
+      setWorkforceSubTab(snapshot.ui.workforceSubTab);
+      setStudioSlice(nextStudioSlice);
+      setTableSlice(nextTableSlice);
+      setCompTarget(nextCompTarget);
+      setShowChangeDrawer(false);
+      setShowToBeUpload(false);
+      setShowRemapping(false);
+      setPendingChartRequest(null);
+      setTableJumpId(null);
+    },
+    [syncLegacyFromDataset],
+  );
+
+  const handleLoadSnapshot = useCallback(
+    async (file: File, passphrase: string) => {
+      const text = await file.text();
+      const snapshot = await decryptSnapshot(text, passphrase);
+      restoreFromOfflineSnapshot(snapshot);
+    },
+    [restoreFromOfflineSnapshot],
+  );
+
+  const handleSaveSnapshot = useCallback(async () => {
+    if (!data && !dataset) return;
+    const passphrase = window.prompt("Enter a passphrase for this encrypted snapshot.");
+    if (passphrase == null) return;
+    if (!passphrase.trim()) {
+      window.alert("Snapshot passphrase is required.");
+      return;
+    }
+
+    try {
+      const createdAt = new Date().toISOString();
+      const payload = createSnapshotPayload(
+        {
+          dataset,
+          data,
+          toBeData,
+          columnMapping,
+          excelRows,
+          excelHeaders,
+          asIsMutatedRows,
+          toBeMutatedRows,
+          changeLog,
+          workCapabilityDataset,
+          successionCandidates,
+          storyDoc,
+          activeSlideId,
+          libraryItems,
+          ui: {
+            activeTab,
+            workforceSubTab,
+            studioSlice,
+            tableSlice,
+            compTarget,
+          },
+          sourceFiles: {
+            orgFileName:
+              excelFile?.name ??
+              dataset?.sourceFileName ??
+              snapshotSourceFiles.orgFileName ??
+              null,
+            toBeFileName:
+              toBeFile?.name ?? snapshotSourceFiles.toBeFileName ?? null,
+          },
+        },
+        createdAt,
+      );
+      const encrypted = await encryptSnapshot(payload, passphrase);
+      const blob = new Blob([encrypted], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = createdAt.slice(0, 19).replace(/[:T]/g, "-");
+      anchor.href = url;
+      anchor.download = `org-dashboard-${stamp}.orgsnap`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not save snapshot.");
+    }
+  }, [
+    activeSlideId,
+    activeTab,
+    asIsMutatedRows,
+    changeLog,
+    columnMapping,
+    compTarget,
+    data,
+    dataset,
+    excelFile,
+    excelHeaders,
+    excelRows,
+    libraryItems,
+    snapshotSourceFiles.orgFileName,
+    snapshotSourceFiles.toBeFileName,
+    storyDoc,
+    studioSlice,
+    successionCandidates,
+    tableSlice,
+    toBeData,
+    toBeFile,
+    toBeMutatedRows,
+    workforceSubTab,
+    workCapabilityDataset,
+  ]);
+
   const canBuildFromRows = useCallback(
     (rows: ExcelRow[]) => {
       if (!columnMapping || rows.length === 0) return false;
@@ -303,6 +477,50 @@ export default function HomePage() {
       });
     },
     [columnMapping],
+  );
+
+  const showNavigationLoading = useCallback((message: string) => {
+    if (navigationLoadingTimerRef.current) {
+      clearTimeout(navigationLoadingTimerRef.current);
+    }
+    setNavigationLoadingMessage(message);
+    navigationLoadingTimerRef.current = setTimeout(() => {
+      setNavigationLoadingMessage(null);
+      navigationLoadingTimerRef.current = null;
+    }, NAVIGATION_LOADING_DURATION_MS);
+  }, []);
+
+  const switchActiveTab = useCallback(
+    (tab: Tab) => {
+      if (tab === activeTab) return;
+      const subTab = tab === "workforce-intelligence" ? workforceSubTab : undefined;
+      showNavigationLoading(getNavigationLoadingMessage(tab, subTab));
+      if (navigationSwitchTimerRef.current) {
+        clearTimeout(navigationSwitchTimerRef.current);
+      }
+      navigationSwitchTimerRef.current = setTimeout(() => {
+        setActiveTab(tab);
+        navigationSwitchTimerRef.current = null;
+      }, 16);
+    },
+    [activeTab, showNavigationLoading, workforceSubTab],
+  );
+
+  const switchWorkforceSubTab = useCallback(
+    (subTab: WorkforceSubTab) => {
+      if (subTab === workforceSubTab) return;
+      showNavigationLoading(
+        getNavigationLoadingMessage("workforce-intelligence", subTab),
+      );
+      if (navigationSwitchTimerRef.current) {
+        clearTimeout(navigationSwitchTimerRef.current);
+      }
+      navigationSwitchTimerRef.current = setTimeout(() => {
+        setWorkforceSubTab(subTab);
+        navigationSwitchTimerRef.current = null;
+      }, 16);
+    },
+    [showNavigationLoading, workforceSubTab],
   );
 
   // ── As-Is handlers ──
@@ -344,6 +562,7 @@ export default function HomePage() {
 
   const handleExcelFile = useCallback((f: File) => {
     setExcelFile(f);
+    setSnapshotSourceFiles((prev) => ({ ...prev, orgFileName: f.name }));
     setAsIsMutatedRows(null);
     setToBeMutatedRows(null);
   }, []);
@@ -1005,8 +1224,8 @@ export default function HomePage() {
       return;
     }
     setLibraryItems(prev => [...prev, data]);
-    setActiveTab('story');
-  }, [libraryItems]);
+    switchActiveTab('story');
+  }, [libraryItems, switchActiveTab]);
 
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
@@ -1026,6 +1245,7 @@ export default function HomePage() {
           "Use this as a controlled baseline before target-state edits.",
         ],
       });
+      setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: "Copied from As-Is" }));
       return;
     }
     if (!data) return;
@@ -1058,6 +1278,7 @@ export default function HomePage() {
       copiedRows ? copiedRows.map((row) => ({ ...row })) : null,
     );
     setToBeFile(excelFile);
+    setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: excelFile?.name ?? "Copied from As-Is" }));
   }, [
     appendChange,
     asIsMutatedRows,
@@ -1094,6 +1315,7 @@ export default function HomePage() {
           title: "To-Be file uploaded",
           summary: `${file.name} loaded as target-state data.`,
         });
+        setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: file.name }));
         setShowToBeUpload(false);
         return;
       }
@@ -1118,6 +1340,7 @@ export default function HomePage() {
       setToBeData(d);
       if (rows) setToBeMutatedRows(rows);
       setToBeFile(file);
+      setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: file.name }));
       setShowToBeUpload(false);
     },
     [
@@ -1146,6 +1369,7 @@ export default function HomePage() {
         title: "To-Be reset",
         summary: "The target-state table was removed.",
       });
+      setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: null }));
       return;
     }
     appendChange(
@@ -1167,6 +1391,7 @@ export default function HomePage() {
     setToBeData(null);
     setToBeFile(null);
     setToBeMutatedRows(null);
+    setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: null }));
   }, [
     appendChange,
     asIsMutatedRows,
@@ -1231,6 +1456,7 @@ export default function HomePage() {
           onDataReady={handleDataReady}
           onExcelFile={handleExcelFile}
           onExcelParsed={handleExcelParsed}
+          onSnapshotLoad={handleLoadSnapshot}
         />
       </>
     );
@@ -1280,6 +1506,7 @@ export default function HomePage() {
     : { source: excelHeaders, derived: [] };
   const remapMapping = dataset?.states[remapState]?.mapping ?? columnMapping;
   const compData = compTarget === "to-be" && toBeData ? toBeData : data;
+  const hasLoadedSource = Boolean(data || dataset || excelFile);
 
   return (
     <div className={styles.shell} ref={shellRef}>
@@ -1308,11 +1535,18 @@ export default function HomePage() {
           <div className={styles.brandName}>Org Analytics · Menu Tech</div>
         </div>
         <div className={styles.headerRight}>
-          {excelFile && (
+          {hasLoadedSource && (
             <>
               <button
                 className={styles.changeLogBtn}
-                onClick={() => setActiveTab("readiness")}
+                onClick={handleSaveSnapshot}
+                title="Download an encrypted offline copy of this dashboard state"
+              >
+                Save Snapshot
+              </button>
+              <button
+                className={styles.changeLogBtn}
+                onClick={() => switchActiveTab("readiness")}
                 title="View data quality and completeness report"
               >
                 <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1323,7 +1557,7 @@ export default function HomePage() {
               </button>
               <button
                 className={styles.changeLogBtn}
-                onClick={() => setActiveTab("comp")}
+                onClick={() => switchActiveTab("comp")}
                 title="Compensation setup"
               >
                 <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1358,7 +1592,7 @@ export default function HomePage() {
           <button
             key={t.key}
             className={`${styles.tab} ${activeTab === t.key ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab(t.key)}
+            onClick={() => switchActiveTab(t.key)}
           >
             <span className={styles.tabNum}>{t.num}</span>
             {t.label}
@@ -1396,6 +1630,13 @@ export default function HomePage() {
           </button>
         )}
       </nav>
+
+      {navigationLoadingMessage && (
+        <div className={styles.navigationLoading} role="status" aria-live="polite">
+          <span className={styles.navigationLoadingDot} />
+          {navigationLoadingMessage}
+        </div>
+      )}
 
       {showRemapping && remapMapping && (
         <div className={styles.remapOverlay}>
@@ -1586,7 +1827,7 @@ export default function HomePage() {
                   }
                   onCreateChart={(req) => {
                     setPendingChartRequest(req);
-                    setActiveTab("studio");
+                    switchActiveTab("studio");
                   }}
                   onDataChange={
                     studioSlice === "as-is"
@@ -1759,7 +2000,7 @@ export default function HomePage() {
           <DataReadinessView
             file={excelFile}
             onNavigateToEmployee={(rowId) => {
-              setActiveTab("table");
+              switchActiveTab("table");
               setTableJumpId(rowId);
             }}
           />
@@ -1780,15 +2021,13 @@ export default function HomePage() {
         }}>
           {(
             [
-              { key: "work-capability", label: "Work & Capability" },
               { key: "activity-analysis", label: "Activity Analysis" },
-              { key: "skills-capability", label: "Skills & Capability" },
-              { key: "succession-planning", label: "Succession Planning" },
+              { key: "talent-mapping", label: "Talent Mapping" },
             ] as { key: WorkforceSubTab; label: string }[]
           ).map((st) => (
             <button
               key={st.key}
-              onClick={() => setWorkforceSubTab(st.key)}
+              onClick={() => switchWorkforceSubTab(st.key)}
               style={{
                 padding: '10px 20px',
                 background: 'none',
@@ -1815,7 +2054,7 @@ export default function HomePage() {
         </div>
 
         {/* Sub-section content */}
-        <div style={{ display: workforceSubTab === "work-capability" ? "block" : "none" }}>
+        <div style={{ display: workforceSubTab === "activity-analysis" ? "block" : "none" }}>
           <WorkCapabilityIngestionPanel
             dataset={workCapabilityDataset}
             orgDataset={dataset}
@@ -1824,19 +2063,33 @@ export default function HomePage() {
               columnMapping?.["Employee ID"]?.column ?? "employee_id"
             }
             onDatasetReady={setWorkCapabilityDataset}
-          />
-        </div>
-        <div style={{ display: workforceSubTab === "activity-analysis" ? "block" : "none" }}>
-          <ActivityAnalysisView
-            dataset={workCapabilityDataset}
-            orgRows={asIsMutatedRows ?? excelRows ?? []}
-            orgEmployeeIdColumn={
-              columnMapping?.["Employee ID"]?.column ?? "employee_id"
+            combinedAnalysisChartsContent={
+              <ActivityAnalysisView
+                dataset={workCapabilityDataset}
+                orgRows={asIsMutatedRows ?? excelRows ?? []}
+                orgEmployeeIdColumn={
+                  columnMapping?.["Employee ID"]?.column ?? "employee_id"
+                }
+                columnMapping={columnMapping}
+                embeddedMode
+                embeddedSection="category-charts"
+              />
             }
-            columnMapping={columnMapping}
+            combinedAnalysisPortfolioContent={
+              <ActivityAnalysisView
+                dataset={workCapabilityDataset}
+                orgRows={asIsMutatedRows ?? excelRows ?? []}
+                orgEmployeeIdColumn={
+                  columnMapping?.["Employee ID"]?.column ?? "employee_id"
+                }
+                columnMapping={columnMapping}
+                embeddedMode
+                embeddedSection="portfolio-workload"
+              />
+            }
           />
         </div>
-        <div style={{ display: workforceSubTab === "skills-capability" ? "block" : "none" }}>
+        <div style={{ display: workforceSubTab === "talent-mapping" ? "block" : "none" }}>
           <SkillsCapabilityView
             dataset={workCapabilityDataset}
             orgRows={asIsMutatedRows ?? excelRows ?? []}
@@ -1844,18 +2097,35 @@ export default function HomePage() {
               columnMapping?.["Employee ID"]?.column ?? "employee_id"
             }
             columnMapping={columnMapping}
-          />
-        </div>
-        <div style={{ display: workforceSubTab === "succession-planning" ? "block" : "none" }}>
-          <SuccessionPlanningView
-            dataset={workCapabilityDataset}
-            orgRows={asIsMutatedRows ?? excelRows ?? []}
-            orgEmployeeIdColumn={
-              columnMapping?.["Employee ID"]?.column ?? "employee_id"
+            layoutMode="talent-mapping"
+            successionRiskContent={
+              <SuccessionPlanningView
+                dataset={workCapabilityDataset}
+                orgRows={asIsMutatedRows ?? excelRows ?? []}
+                orgEmployeeIdColumn={
+                  columnMapping?.["Employee ID"]?.column ?? "employee_id"
+                }
+                columnMapping={columnMapping}
+                successionCandidates={successionCandidates}
+                onSuccessionCandidatesChange={setSuccessionCandidates}
+                embeddedMode
+                embeddedSection="risk-overview"
+              />
             }
-            columnMapping={columnMapping}
-            successionCandidates={successionCandidates}
-            onSuccessionCandidatesChange={setSuccessionCandidates}
+            successionPlanningContent={
+              <SuccessionPlanningView
+                dataset={workCapabilityDataset}
+                orgRows={asIsMutatedRows ?? excelRows ?? []}
+                orgEmployeeIdColumn={
+                  columnMapping?.["Employee ID"]?.column ?? "employee_id"
+                }
+                columnMapping={columnMapping}
+                successionCandidates={successionCandidates}
+                onSuccessionCandidatesChange={setSuccessionCandidates}
+                embeddedMode
+                embeddedSection="remaining"
+              />
+            }
           />
         </div>
       </div>
@@ -1959,7 +2229,7 @@ export default function HomePage() {
               }
               onCreateChart={(req) => {
                 setPendingChartRequest(req);
-                setActiveTab("studio");
+                switchActiveTab("studio");
                 setShowAIFloat(false);
               }}
               onDataChange={handleCompDataChange}
@@ -2208,12 +2478,18 @@ function WorkCapabilityTaxonomyManager({
   orgEmployeeIdColumn,
   columnMapping,
   onDatasetChange,
+  readOnlyCatalog = false,
+  combinedAnalysisChartsContent = null,
+  combinedAnalysisPortfolioContent = null,
 }: {
   dataset: WorkCapabilityDataset;
   orgRows: ExcelRow[];
   orgEmployeeIdColumn: string;
   columnMapping: ColumnMapping | null;
   onDatasetChange: (dataset: WorkCapabilityDataset) => void;
+  readOnlyCatalog?: boolean;
+  combinedAnalysisChartsContent?: ReactNode;
+  combinedAnalysisPortfolioContent?: ReactNode;
 }) {
   const [showExperimentalMap, setShowExperimentalMap] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState("taxonomy-root");
@@ -2543,7 +2819,7 @@ function WorkCapabilityTaxonomyManager({
 
   return (
     <section className={styles.workCapabilityTaxonomy}>
-      <div className={styles.workCapabilityTaxonomyHeader}>
+      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyHeader}>
         <div>
           <p className={styles.workCapabilityKicker}>Process Taxonomy</p>
           <h3>Work catalog editor</h3>
@@ -2556,20 +2832,22 @@ function WorkCapabilityTaxonomyManager({
           <span>{activeActivities.length.toLocaleString()} active</span>
           <span>{activityLibrary.length.toLocaleString()} total</span>
         </div>
-      </div>
+      </div>}
 
-      <div className={styles.workCapabilityTaxonomyToolbar}>
+      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyToolbar}>
         <div className={styles.workCapabilityViewTabs}>
           <button type="button" className={styles.workCapabilityImportBtn}>
             Catalog View
           </button>
         </div>
-        <input
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search activities"
-          aria-label="Search taxonomy"
-        />
+        {!readOnlyCatalog && (
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search activities"
+            aria-label="Search taxonomy"
+          />
+        )}
         <details className={styles.workCapabilityFiltersDetail}>
           <summary className={styles.workCapabilitySecondaryBtn} style={{ listStyle: "none", cursor: "pointer" }}>
             Filters ▾
@@ -2658,14 +2936,16 @@ function WorkCapabilityTaxonomyManager({
         >
           {showInactive ? "Showing Archived" : "Hide Archived"}
         </button>
-        <button
-          type="button"
-          className={styles.workCapabilityImportBtn}
-          onClick={() => setShowAddActivity(true)}
-        >
-          Add Activity
-        </button>
-      </div>
+        {!readOnlyCatalog && (
+          <button
+            type="button"
+            className={styles.workCapabilityImportBtn}
+            onClick={() => setShowAddActivity(true)}
+          >
+            Add Activity
+          </button>
+        )}
+      </div>}
 
       <>
         <div className={styles.workCapabilityKpiStrip}>
@@ -2795,6 +3075,8 @@ function WorkCapabilityTaxonomyManager({
         </div>
 
         {/* Taxonomy concentration treemap */}
+        {combinedAnalysisChartsContent}
+
         <div className={styles.workCapabilityTreemapSection}>
           <div className={styles.workCapabilityTreemapHeader}>
             <div>
@@ -2935,7 +3217,11 @@ function WorkCapabilityTaxonomyManager({
             )}
         </div>
 
-        <div className={styles.workCapabilityCatalogWorkspace}>
+        {combinedAnalysisPortfolioContent}
+
+        <div
+          className={styles.workCapabilityCatalogWorkspace}
+        >
           <aside className={styles.workCapabilityCatalogTree}>
             <button
               type="button"
@@ -3042,7 +3328,7 @@ function WorkCapabilityTaxonomyManager({
                 </button>
               </div>
             )}
-            {selectedActivityIds.length > 0 && (
+            {!readOnlyCatalog && selectedActivityIds.length > 0 && (
               <div className={styles.workCapabilityBulkActionBar}>
                 <strong>
                   {selectedActivityIds.length.toLocaleString()} selected
@@ -3079,14 +3365,16 @@ function WorkCapabilityTaxonomyManager({
             <table className={styles.workCapabilityActivityTable}>
               <thead>
                 <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleVisibleSelection}
-                      aria-label="Select visible activities"
-                    />
-                  </th>
+                  {!readOnlyCatalog && (
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleVisibleSelection}
+                        aria-label="Select visible activities"
+                      />
+                    </th>
+                  )}
                   <th>Activity</th>
                   <th>Domain</th>
                   <th>Category</th>
@@ -3101,7 +3389,7 @@ function WorkCapabilityTaxonomyManager({
                   <th>Accountable</th>
                   <th>Auto Saving</th>
                   <th>Skill Risk</th>
-                  <th>Actions</th>
+                  {!readOnlyCatalog && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -3114,18 +3402,20 @@ function WorkCapabilityTaxonomyManager({
                         : ""
                     }
                   >
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={selectedActivityIds.includes(
-                          activity.activityId,
-                        )}
-                        onChange={() =>
-                          toggleActivitySelection(activity.activityId)
-                        }
-                        aria-label={`Select ${activity.activityName}`}
-                      />
-                    </td>
+                    {!readOnlyCatalog && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedActivityIds.includes(
+                            activity.activityId,
+                          )}
+                          onChange={() =>
+                            toggleActivitySelection(activity.activityId)
+                          }
+                          aria-label={`Select ${activity.activityName}`}
+                        />
+                      </td>
+                    )}
                     <td>
                       <button
                         type="button"
@@ -3150,30 +3440,32 @@ function WorkCapabilityTaxonomyManager({
                     <td>{activity.accountableCount}</td>
                     <td>{activity.automationCostReductionPct}%</td>
                     <td>{activity.skillRisk}</td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedActivityId(activity.activityId);
-                          setShowAddActivity(false);
-                        }}
-                      >
-                        View
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setArchiveModalActivityIds([activity.activityId])
-                        }
-                      >
-                        Archive
-                      </button>
-                    </td>
+                    {!readOnlyCatalog && (
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedActivityId(activity.activityId);
+                            setShowAddActivity(false);
+                          }}
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setArchiveModalActivityIds([activity.activityId])
+                          }
+                        >
+                          Archive
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {filteredActivities.length === 0 && (
                   <tr>
-                    <td colSpan={16}>
+                    <td colSpan={readOnlyCatalog ? 14 : 16}>
                       No activities match the current catalog filters.
                     </td>
                   </tr>
@@ -3183,7 +3475,7 @@ function WorkCapabilityTaxonomyManager({
           </div>
 
           <aside className={styles.workCapabilityActivityDetailPanel}>
-            {showAddActivity ? (
+            {!readOnlyCatalog && showAddActivity ? (
               <WorkCapabilityAddActivityForm
                 dataset={dataset}
                 selectedTreeId={selectedTreeId}
@@ -3212,22 +3504,24 @@ function WorkCapabilityTaxonomyManager({
                 }
                 onMerge={(activityIds) => setMergeModalActivityIds(activityIds)}
                 onMutate={mutate}
+                readOnly={readOnlyCatalog}
               />
             )}
           </aside>
         </div>
-      </>
 
-      <WorkCapabilityTaxonomyCleanupPanel
-        suggestions={cleanupSuggestions}
-        onReview={(activityIds) => {
-          setReviewHighlightIds(activityIds);
-          const firstActivityId = activityIds[0];
-          if (firstActivityId) setSelectedActivityId(firstActivityId);
-        }}
-        onMerge={(activityIds) => setMergeModalActivityIds(activityIds)}
-        onArchive={(activityIds) => setArchiveModalActivityIds(activityIds)}
-      />
+        <WorkCapabilityTaxonomyCleanupPanel
+          suggestions={cleanupSuggestions}
+          readOnlyCatalog={readOnlyCatalog}
+          onReview={(activityIds) => {
+            setReviewHighlightIds(activityIds);
+            const firstActivityId = activityIds[0];
+            if (firstActivityId) setSelectedActivityId(firstActivityId);
+          }}
+          onMerge={(activityIds) => setMergeModalActivityIds(activityIds)}
+          onArchive={(activityIds) => setArchiveModalActivityIds(activityIds)}
+        />
+      </>
 
       {showExperimentalMap && (
         <div className={styles.workCapabilityTaxonomyWorkspace}>
@@ -3279,7 +3573,7 @@ function WorkCapabilityTaxonomyManager({
         </div>
       )}
 
-      {archiveModalActivityIds && (
+      {!readOnlyCatalog && archiveModalActivityIds && (
         <WorkCapabilityArchiveModal
           impact={getWorkCapabilityArchiveImpact({
             dataset,
@@ -3299,7 +3593,7 @@ function WorkCapabilityTaxonomyManager({
         />
       )}
 
-      {mergeModalActivityIds && (
+      {!readOnlyCatalog && mergeModalActivityIds && (
         <WorkCapabilityMergeModal
           dataset={dataset}
           portfolio={portfolio}
@@ -3320,7 +3614,7 @@ function WorkCapabilityTaxonomyManager({
         />
       )}
 
-      <div className={styles.workCapabilityTaxonomyFooter}>
+      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyFooter}>
         <div className={styles.workCapabilityChangeLog}>
           <strong>Taxonomy Change Log</strong>
           {(dataset.taxonomyChangeLog ?? []).slice(-5).map((change) => (
@@ -3332,7 +3626,7 @@ function WorkCapabilityTaxonomyManager({
             <span>No taxonomy edits this session.</span>
           )}
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
@@ -3547,6 +3841,7 @@ function WorkCapabilityActivityDetailPanel({
   onArchive,
   onMerge,
   onMutate,
+  readOnly = false,
 }: {
   activity: WorkCapabilityActivityMetric | null;
   dataset: WorkCapabilityDataset;
@@ -3557,6 +3852,7 @@ function WorkCapabilityActivityDetailPanel({
   onArchive: (activityIds: string[]) => void;
   onMerge: (activityIds: string[]) => void;
   onMutate: (mutation: TaxonomyMutation, nextSelection?: string) => void;
+  readOnly?: boolean;
 }) {
   const [detailEditMode, setDetailEditMode] = useState(false);
   const sourceActivity = activity
@@ -3576,7 +3872,7 @@ function WorkCapabilityActivityDetailPanel({
         <h3>Select an activity</h3>
         <p>
           Choose a row from the portfolio table to review delivery footprint,
-          skills, and edit actions.
+          skills, and activity context.
         </p>
       </div>
     );
@@ -3591,17 +3887,19 @@ function WorkCapabilityActivityDetailPanel({
       <p className={styles.workCapabilityKicker}>Activity Detail</p>
       <div className={styles.workCapabilityDetailHeader}>
         <h3>{activity.activityName}</h3>
-        <button
-          type="button"
-          className={
-            detailEditMode
-              ? styles.workCapabilityImportBtn
-              : styles.workCapabilitySecondaryBtn
-          }
-          onClick={() => setDetailEditMode((prev) => !prev)}
-        >
-          {detailEditMode ? "Close Edit" : "Edit Activity"}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className={
+              detailEditMode
+                ? styles.workCapabilityImportBtn
+                : styles.workCapabilitySecondaryBtn
+            }
+            onClick={() => setDetailEditMode((prev) => !prev)}
+          >
+            {detailEditMode ? "Close Edit" : "Edit Activity"}
+          </button>
+        )}
       </div>
       <div className={styles.workCapabilityActivityPath}>
         {activity.domain} / {activity.category} / {activity.processArea}
@@ -3625,7 +3923,7 @@ function WorkCapabilityActivityDetailPanel({
         />
       </div>
 
-      {detailEditMode ? (
+      {!readOnly && detailEditMode ? (
         <ActivityTaxonomyEditor
           activity={sourceActivity}
           processOptions={processOptions}
@@ -3730,7 +4028,7 @@ function WorkCapabilityActivityDetailPanel({
         </table>
       </div>
 
-      <div className={styles.workCapabilityDetailSection}>
+      {!readOnly && <div className={styles.workCapabilityDetailSection}>
         <strong>Scenario Levers</strong>
         <div className={styles.workCapabilityScenarioLevers}>
           <button type="button">
@@ -3742,9 +4040,9 @@ function WorkCapabilityActivityDetailPanel({
           <button type="button">Consolidate</button>
           <button type="button">Reassign Owner</button>
         </div>
-      </div>
+      </div>}
 
-      <div className={styles.workCapabilityInspectorForm}>
+      {!readOnly && <div className={styles.workCapabilityInspectorForm}>
         <strong>Activity Actions</strong>
         <span>
           {skillRequirementCount.toLocaleString()} skill requirement
@@ -3763,7 +4061,7 @@ function WorkCapabilityActivityDetailPanel({
         <button type="button" onClick={() => onArchive([activity.activityId])}>
           Archive Activity
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -3956,11 +4254,13 @@ function WorkCapabilityTaxonomyCleanupPanel({
   onReview,
   onMerge,
   onArchive,
+  readOnlyCatalog = false,
 }: {
   suggestions: ReturnType<typeof buildWorkCapabilityTaxonomyCleanupSuggestions>;
   onReview: (activityIds: string[]) => void;
   onMerge: (activityIds: string[]) => void;
   onArchive: (activityIds: string[]) => void;
+  readOnlyCatalog?: boolean;
 }) {
   return (
     <div className={styles.workCapabilityCleanupPanel}>
@@ -3973,8 +4273,11 @@ function WorkCapabilityTaxonomyCleanupPanel({
         </div>
         <span>{suggestions.length.toLocaleString()} suggestions</span>
       </div>
-      <div className={styles.workCapabilityCleanupList}>
-        {suggestions.slice(0, 8).map((suggestion) => (
+      <div
+        className={styles.workCapabilityCleanupList}
+        style={{ maxHeight: 360, overflowY: "auto" }}
+      >
+        {suggestions.map((suggestion) => (
           <div key={suggestion.id} className={styles.workCapabilityCleanupItem}>
             <div>
               <strong>{suggestion.title}</strong>
@@ -3993,7 +4296,7 @@ function WorkCapabilityTaxonomyCleanupPanel({
                   Review
                 </button>
               )}
-              {suggestion.actions.includes("Merge") && (
+              {!readOnlyCatalog && suggestion.actions.includes("Merge") && (
                 <button
                   type="button"
                   onClick={() => onMerge(suggestion.activityIds)}
@@ -4002,7 +4305,7 @@ function WorkCapabilityTaxonomyCleanupPanel({
                   Merge
                 </button>
               )}
-              {suggestion.actions.includes("Archive") && (
+              {!readOnlyCatalog && suggestion.actions.includes("Archive") && (
                 <button
                   type="button"
                   onClick={() => onArchive(suggestion.activityIds)}
@@ -4010,7 +4313,7 @@ function WorkCapabilityTaxonomyCleanupPanel({
                   Archive
                 </button>
               )}
-              {suggestion.actions.includes("Add Skills") && (
+              {!readOnlyCatalog && suggestion.actions.includes("Add Skills") && (
                 <button
                   type="button"
                   onClick={() => onReview(suggestion.activityIds)}
@@ -4581,12 +4884,16 @@ function WorkCapabilityIngestionPanel({
   orgRows,
   orgEmployeeIdColumn,
   onDatasetReady,
+  combinedAnalysisChartsContent,
+  combinedAnalysisPortfolioContent,
 }: {
   dataset: WorkCapabilityDataset | null;
   orgDataset: OrgDataset | null;
   orgRows: ExcelRow[];
   orgEmployeeIdColumn: string;
   onDatasetReady: (dataset: WorkCapabilityDataset) => void;
+  combinedAnalysisChartsContent?: ReactNode;
+  combinedAnalysisPortfolioContent?: ReactNode;
 }) {
   const [parsedFiles, setParsedFiles] = useState<ParsedWorkCapabilityFile[]>(
     [],
@@ -4776,6 +5083,9 @@ function WorkCapabilityIngestionPanel({
             setValidation(nextDataset.validation);
             onDatasetReady(nextDataset);
           }}
+          readOnlyCatalog
+          combinedAnalysisChartsContent={combinedAnalysisChartsContent}
+          combinedAnalysisPortfolioContent={combinedAnalysisPortfolioContent}
         />
       )}
 

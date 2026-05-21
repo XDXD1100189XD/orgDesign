@@ -191,7 +191,7 @@ export interface TableRow {
 // ========================================================
 // Upload file type selection
 // ========================================================
-export type FileInputType = 'image' | 'text' | 'excel';
+export type FileInputType = 'image' | 'text' | 'excel' | 'snapshot';
 
 export const FILE_TYPE_CONFIG: Record<FileInputType, {
   label: string;
@@ -202,6 +202,7 @@ export const FILE_TYPE_CONFIG: Record<FileInputType, {
   image: { label: 'Image', accept: 'image/png,image/jpeg,image/webp', description: 'PNG · JPG · WEBP', icon: '🖼️' },
   text:  { label: 'Text', accept: '.txt,.csv,.json,.md', description: 'TXT · CSV · JSON · MD', icon: '📄' },
   excel: { label: 'Excel', accept: '.xlsx,.xls,.csv', description: 'XLSX · XLS · CSV', icon: '📊' },
+  snapshot: { label: 'Snapshot', accept: '.orgsnap,application/json', description: 'Encrypted backup', icon: 'S' },
 };
 
 // ========================================================

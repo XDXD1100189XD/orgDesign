@@ -12,19 +12,21 @@ import ColumnMappingStep from './ColumnMappingStep';
 import styles from './UploadModal.module.css';
 
 type Stage = 'upload' | 'parse' | 'render';
-const FILE_TYPES: FileInputType[] = ['image', 'text', 'excel'];
+const FILE_TYPES: FileInputType[] = ['image', 'text', 'excel', 'snapshot'];
 
 interface Props {
   onDataReady: (data: DashboardData) => void;
   onExcelFile?: (file: File) => void;
   onExcelParsed?: (rows: ExcelRow[], headers: string[], mapping: ColumnMapping) => void;
+  onSnapshotLoad?: (file: File, passphrase: string) => Promise<void> | void;
 }
 
-export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }: Props) {
+export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed, onSnapshotLoad }: Props) {
   const [fileType, setFileType] = useState<FileInputType>('image');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [textInput, setTextInput] = useState('');
+  const [snapshotPassphrase, setSnapshotPassphrase] = useState('');
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeStage, setActiveStage] = useState<Stage | null>(null);
@@ -66,6 +68,7 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }:
     setFileType(t);
     removeFile();
     setTextInput('');
+    setSnapshotPassphrase('');
     setError(null);
   };
 
@@ -78,7 +81,12 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }:
     }
   };
 
-  const canSubmit = fileType === 'text' ? textInput.trim().length > 0 : !!file;
+  const canSubmit =
+    fileType === 'text'
+      ? textInput.trim().length > 0
+      : fileType === 'snapshot'
+        ? !!file && snapshotPassphrase.trim().length > 0
+        : !!file;
 
   const handleMappingConfirm = async (confirmedMapping: ColumnMapping) => {
     setShowMapping(false);
@@ -104,6 +112,23 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }:
     setDoneStages(new Set());
 
     // Excel: parse locally and show mapping UI — no server call
+    if (fileType === 'snapshot') {
+      try {
+        if (!file) throw new Error('Select a snapshot file first.');
+        if (!onSnapshotLoad) throw new Error('Snapshot loading is not available.');
+        markStage('parse', false);
+        await onSnapshotLoad(file, snapshotPassphrase);
+        markStage('parse', true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not load snapshot.');
+        setActiveStage(null);
+        setDoneStages(new Set());
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (fileType === 'excel') {
       try {
         const { parseExcelFile } = await import('@/lib/parseExcel');
@@ -292,6 +317,25 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }:
                   <button className={styles.remove} onClick={removeFile}>×</button>
                 </div>
               )}
+              {fileType === 'snapshot' && (
+                <div className={styles.snapshotPassphrase}>
+                  <label className={styles.snapshotLabel} htmlFor="snapshot-passphrase">
+                    Snapshot passphrase
+                  </label>
+                  <input
+                    id="snapshot-passphrase"
+                    className={styles.snapshotInput}
+                    type="password"
+                    value={snapshotPassphrase}
+                    onChange={(event) => {
+                      setSnapshotPassphrase(event.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Enter the passphrase used when saving"
+                    autoComplete="current-password"
+                  />
+                </div>
+              )}
             </>
           )}
 
@@ -314,7 +358,7 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed }:
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
-            {loading ? 'Working…' : 'Analyze & Generate'}
+            {loading ? 'Working...' : fileType === 'snapshot' ? 'Load Snapshot' : 'Analyze & Generate'}
           </button>
         </div>
       </div>

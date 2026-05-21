@@ -40,7 +40,7 @@
 .help { font-size: 13px; color: var(--slate-2); line-height: 1.5; margin-bottom: 20px; }
 
 /* File type selector */
-.typeSelector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.typeSelector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
 .typeBtn {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 14px 8px 10px; border-radius: 4px; cursor: pointer;
@@ -101,6 +101,32 @@
   letter-spacing: 0.1em; color: var(--slate-light);
 }
 
+.snapshotPassphrase {
+  margin-top: 14px;
+}
+.snapshotLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate-2);
+  font-weight: 700;
+}
+.snapshotInput {
+  width: 100%;
+  border: 1.5px solid rgba(0,0,0,0.12);
+  border-radius: 4px;
+  background: var(--white);
+  color: var(--ink);
+  padding: 12px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+}
+.snapshotInput:focus { border-color: var(--teal); }
+
 .stages { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; padding: 16px; background: var(--white); border: 1px solid rgba(0,0,0,0.08); border-radius: 3px; }
 .stage { display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate-light); transition: color 0.3s; }
 .stageActive { color: var(--ink); font-weight: 700; }
@@ -123,3 +149,7 @@
 }
 .btn:hover:not(:disabled) { background: var(--teal); transform: translateY(-1px); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .typeSelector { grid-template-columns: repeat(2, 1fr); }
+}

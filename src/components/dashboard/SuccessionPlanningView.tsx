@@ -22,6 +22,8 @@ type SuccessionPlanningProps = {
   columnMapping: ColumnMapping | null;
   successionCandidates: SuccessionCandidateRecord[];
   onSuccessionCandidatesChange: (rows: SuccessionCandidateRecord[]) => void;
+  embeddedMode?: boolean;
+  embeddedSection?: "all" | "risk-overview" | "remaining";
 };
 
 const statusOptions: SuccessionCandidateStatus[] = [
@@ -142,6 +144,8 @@ export default function SuccessionPlanningView({
   columnMapping,
   successionCandidates,
   onSuccessionCandidatesChange,
+  embeddedMode = false,
+  embeddedSection = "all",
 }: SuccessionPlanningProps) {
   const [riskFilter, setRiskFilter] = useState("");
   const [selectedTargetEmployeeId, setSelectedTargetEmployeeId] = useState<
@@ -267,6 +271,153 @@ export default function SuccessionPlanningView({
       tone: shared.metricPurple,
     },
   ];
+
+  if (embeddedMode && embeddedSection === "risk-overview") {
+    return (
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Succession Risk</h3>
+            <p className={sp.sectionSubtitle}>High-risk critical roles by department.</p>
+          </div>
+        </div>
+        <div className={sp.sectionBody}>
+          <RiskByDepartment portfolio={portfolio} />
+        </div>
+      </section>
+    );
+  }
+
+  if (embeddedMode && embeddedSection === "remaining") {
+    return (
+      <>
+        <section className={sp.sectionPanel}>
+          <div className={sp.sectionHeader}>
+            <div>
+              <h3 className={sp.sectionTitle}>Critical Role Cockpit</h3>
+              <p className={sp.sectionSubtitle}>
+                Select a role to view its risk profile and succession details.
+              </p>
+            </div>
+          </div>
+          <div className={sp.cockpit}>
+            <div className={sp.cockpitLeft}>
+              <div className={sp.cockpitFilters}>
+                <input
+                  className={shared.input}
+                  style={{ flex: "none", width: "100%" }}
+                  type="search"
+                  placeholder="Search role or incumbent..."
+                  value={cockpitSearch}
+                  onChange={(e) => setCockpitSearch(e.target.value)}
+                />
+                <select
+                  className={shared.select}
+                  style={{ flex: "none", width: "100%" }}
+                  value={cockpitDeptFilter}
+                  onChange={(e) => setCockpitDeptFilter(e.target.value)}
+                >
+                  <option value="">All departments</option>
+                  {portfolio.filterOptions.departments.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={sp.cockpitList}>
+                {filteredRoles.map((role) => (
+                  <div
+                    key={role.employeeId}
+                    className={cx(
+                      sp.roleRow,
+                      role.employeeId === selectedRole?.employeeId &&
+                        sp.roleRowSelected,
+                    )}
+                    onClick={() => setSelectedTargetEmployeeId(role.employeeId)}
+                  >
+                    <div>
+                      <div className={sp.roleRowName}>{role.employeeName}</div>
+                      <div className={sp.roleRowMeta}>
+                        {role.role || "-"} | {role.department}
+                      </div>
+                    </div>
+                    <span
+                      className={cx(shared.badge, riskBadge(role.successionRisk))}
+                    >
+                      {role.successionRisk}
+                    </span>
+                  </div>
+                ))}
+                {filteredRoles.length === 0 && (
+                  <div
+                    style={{
+                      padding: "20px 14px",
+                      color: "var(--slate-light)",
+                      fontSize: 12,
+                    }}
+                  >
+                    No roles match current filters.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className={sp.cockpitRight}>
+              {selectedRole ? (
+                <RoleProfile role={selectedRole} />
+              ) : (
+                <div className={sp.emptyProfile}>
+                  Select a critical role from the list.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className={sp.sectionPanel}>
+          <div className={sp.sectionHeader}>
+            <div>
+              <h3 className={sp.sectionTitle}>Successor Candidates</h3>
+              <p className={sp.sectionSubtitle}>
+                {selectedRole
+                  ? `Ranked candidates for ${selectedRole.employeeName}${selectedRole.role ? ` | ${selectedRole.role}` : ""}`
+                  : "Select a role in the cockpit above to view candidates."}
+              </p>
+            </div>
+          </div>
+          <div className={sp.sectionBody}>
+            {selectedRole ? (
+              <CompactCandidateTable
+                candidates={selectedCandidates}
+                onStatusChange={updateCandidateStatus}
+              />
+            ) : (
+              <p
+                style={{ margin: 0, color: "var(--slate-light)", fontSize: 12 }}
+              >
+                Select a critical role to view candidates.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className={sp.sectionPanel}>
+          <div className={sp.sectionHeader}>
+            <div>
+              <h3 className={sp.sectionTitle}>Attention Flags / Conflicts</h3>
+              <p className={sp.sectionSubtitle}>
+                Coverage gaps, workload risk, and selected-candidate conflicts.
+              </p>
+            </div>
+          </div>
+          <div className={sp.sectionBody}>
+            <AttentionFlags portfolio={portfolio} />
+          </div>
+        </section>
+      </>
+    );
+  }
 
   return (
     <div className={shared.wrap}>

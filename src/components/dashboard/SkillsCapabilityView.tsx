@@ -18,6 +18,9 @@ interface SkillsCapabilityViewProps {
   orgRows: ExcelRow[];
   orgEmployeeIdColumn: string;
   columnMapping: ColumnMapping | null;
+  layoutMode?: "full" | "talent-mapping";
+  successionRiskContent?: React.ReactNode;
+  successionPlanningContent?: React.ReactNode;
 }
 
 type HeatmapView = "department-family" | "role-skill" | "employee-skill";
@@ -72,6 +75,9 @@ export default function SkillsCapabilityView({
   orgRows,
   orgEmployeeIdColumn,
   columnMapping,
+  layoutMode = "full",
+  successionRiskContent = null,
+  successionPlanningContent = null,
 }: SkillsCapabilityViewProps) {
   const [mounted, setMounted] = useState(false);
   const [heatmapView, setHeatmapView] = useState<HeatmapView>("department-family");
@@ -110,6 +116,51 @@ export default function SkillsCapabilityView({
   if (!portfolio) {
     return (
       <CenterState message="Unable to load Skills & Capability data. Please check your dataset." />
+    );
+  }
+
+  if (layoutMode === "talent-mapping") {
+    return (
+      <div className={styles.wrap}>
+        <header className={styles.header}>
+          <div>
+            <div className={styles.eyebrow}>Work &amp; Capability Analysis</div>
+            <h2 className={styles.title}>Talent Mapping</h2>
+            <p className={styles.subtitle}>
+              Connect skills, activity risk, coverage, and succession exposure in one talent
+              planning view.
+            </p>
+          </div>
+        </header>
+
+        <KpiStrip portfolio={portfolio} />
+
+        <section id="capability-health">
+          <div className={styles.sectionHeading}>
+            <h3>Capability Health Overview</h3>
+          </div>
+          <div className={styles.talentOverviewGrid}>
+            <SkillGapOverviewCard portfolio={portfolio} />
+            {successionRiskContent}
+          </div>
+        </section>
+
+        <div className={styles.talentTwoColumn}>
+          <ActivityRiskDrilldown activities={filteredActivities} />
+          <SkillCoverageDrilldown
+            skills={filteredSkills}
+            filterOptions={portfolio.filterOptions}
+          />
+        </div>
+
+        <GapHeatmapSection
+          portfolio={portfolio}
+          heatmapView={heatmapView}
+          onHeatmapViewChange={setHeatmapView}
+        />
+
+        {successionPlanningContent}
+      </div>
     );
   }
 
@@ -219,17 +270,6 @@ function KpiStrip({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
 }
 
 function CapabilityHealthSection({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
-  const deptGaps = portfolio.filterOptions.departments
-    .map((dept) => ({
-      dept,
-      majorGaps: portfolio.roles
-        .filter((r) => r.department === dept)
-        .reduce((sum, r) => sum + r.majorGaps, 0),
-    }))
-    .sort((a, b) => b.majorGaps - a.majorGaps);
-
-  const maxDeptGap = Math.max(1, ...deptGaps.map((d) => d.majorGaps));
-
   const weakestCritical = portfolio.skills
     .filter((s) => s.criticality === "High")
     .sort((a, b) => a.employeesAtLevel3Plus - b.employeesAtLevel3Plus)
@@ -258,25 +298,7 @@ function CapabilityHealthSection({ portfolio }: { portfolio: SkillsCapabilityPor
         <h3>Capability Health Overview</h3>
       </div>
       <div className={styles.overviewGrid}>
-        <ChartCard
-          title="Where skill gaps concentrate"
-          subtitle="Departments ranked by total major gap count"
-        >
-          <div className={styles.barList}>
-            {deptGaps.map(({ dept, majorGaps }) => (
-              <MetricBar
-                key={dept || "blank"}
-                label={dept || "No department"}
-                value={majorGaps}
-                width={(majorGaps / maxDeptGap) * 100}
-                tone="red"
-              />
-            ))}
-            {deptGaps.length === 0 && (
-              <p className={styles.emptyNote}>No department data available.</p>
-            )}
-          </div>
-        </ChartCard>
+        <SkillGapOverviewCard portfolio={portfolio} />
 
         <ChartCard
           title="Weakest critical skills"
@@ -313,6 +335,41 @@ function CapabilityHealthSection({ portfolio }: { portfolio: SkillsCapabilityPor
         </ChartCard>
       </div>
     </section>
+  );
+}
+
+function SkillGapOverviewCard({ portfolio }: { portfolio: SkillsCapabilityPortfolio }) {
+  const deptGaps = portfolio.filterOptions.departments
+    .map((dept) => ({
+      dept,
+      majorGaps: portfolio.roles
+        .filter((r) => r.department === dept)
+        .reduce((sum, r) => sum + r.majorGaps, 0),
+    }))
+    .sort((a, b) => b.majorGaps - a.majorGaps);
+
+  const maxDeptGap = Math.max(1, ...deptGaps.map((d) => d.majorGaps));
+
+  return (
+    <ChartCard
+      title="Where skill gaps concentrate"
+      subtitle="Departments ranked by total major gap count"
+    >
+      <div className={styles.barList}>
+        {deptGaps.map(({ dept, majorGaps }) => (
+          <MetricBar
+            key={dept || "blank"}
+            label={dept || "No department"}
+            value={majorGaps}
+            width={(majorGaps / maxDeptGap) * 100}
+            tone="red"
+          />
+        ))}
+        {deptGaps.length === 0 && (
+          <p className={styles.emptyNote}>No department data available.</p>
+        )}
+      </div>
+    </ChartCard>
   );
 }
 

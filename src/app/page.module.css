@@ -110,6 +110,40 @@
 .tabNum { font-size: 10px; margin-right: 8px; color: var(--slate-light); }
 .tabActive .tabNum { color: var(--olive); }
 
+.navigationLoading {
+  position: sticky;
+  top: 45px;
+  z-index: 9;
+  margin: -16px 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border: 1px solid rgba(0, 107, 107, 0.22);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--teal);
+  box-shadow: 0 10px 24px rgba(26, 29, 32, 0.08);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.navigationLoadingDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--teal);
+  animation: pulseDot 0.9s ease-in-out infinite;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 .editFieldsBtn {
   margin-left: auto; align-self: center;
   background: none; border: 1px solid rgba(0,0,0,0.15);
