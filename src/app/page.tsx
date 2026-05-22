@@ -91,6 +91,7 @@ import {
   type WorkCapabilityValidationSummary,
 } from "@/lib/workCapabilityDataset";
 import { parseExcelFile } from "@/lib/parseExcel";
+import { WC_TABLE_NAMES, computeWcDerived } from "@/lib/wcSqlUtils";
 import { Treemap, ResponsiveContainer } from "recharts";
 import dynamic from "next/dynamic";
 import styles from "./page.module.css";
@@ -258,6 +259,20 @@ export default function HomePage() {
       }
     };
   }, []);
+
+  // Register WC tables in alasql as soon as WC data is loaded so run_sql can
+  // query them from the AI assistant without requiring a visit to Analytics Studio.
+  useEffect(() => {
+    if (!workCapabilityDataset) return;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+    const alasql = require('alasql') as any;
+    for (const tbl of WC_TABLE_NAMES) {
+      const rows = computeWcDerived(workCapabilityDataset, tbl);
+      alasql(`DROP TABLE IF EXISTS ${tbl}`);
+      alasql(`CREATE TABLE ${tbl}`);
+      alasql.tables[tbl].data = rows.map((r: Record<string, unknown>) => ({ ...r }));
+    }
+  }, [workCapabilityDataset]);
 
   const commitDataset = useCallback(
     (

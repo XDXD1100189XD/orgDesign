@@ -7,7 +7,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'run_sql',
     description:
-      'Execute a SQL query against the in-memory AlaSQL tables. The primary org table is named `data`. When Work & Capability data is loaded, these additional tables are also available for SELECT and JOIN: `activity_library`, `skill_library`, `activity_assignments`, `employee_skills`, `role_skill_requirements`, `activity_skill_requirements`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations (on `data` only — WC tables are read-only). Mutations require user confirmation. Call `get_wc_schema` first to learn join keys before writing cross-table queries. If this returns { ok: false, error: "..." }, fix and retry. For Work & Capability questions, prefer domain WC tools (analyze_activities, find_successors, etc.) first — use run_wc_sql for read-only WC SQL fallback.',
+      'Execute a SQL query against the in-memory AlaSQL tables. The primary org table is named `data`. When Work & Capability data is loaded, these additional tables are also available for SELECT and JOIN: `activity_library`, `skill_library`, `activity_assignments`, `employee_skills`, `role_skill_requirements`, `activity_skill_requirements`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations (on `data` only — WC tables are read-only). Mutations require user confirmation. Call `get_wc_schema` first to learn join keys before writing cross-table queries. If this returns { ok: false, error: "..." }, fix and retry. For Work & Capability questions, prefer domain WC tools (analyze_activities, find_successors, etc.) first — use run_sql as the SQL fallback for both org and WC tables.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -52,19 +52,6 @@ const TOOLS: Anthropic.Tool[] = [
         },
       },
       required: [],
-    },
-  },
-  {
-    name: 'run_wc_sql',
-    description:
-      "Execute a read-only SELECT against Work & Capability tables. Mutations (INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE) are blocked at the executor. Default LIMIT 25 enforced if omitted. Max 10 rows returned to you (full results visible in UI). Use as SQL fallback ONLY when domain WC tools (analyze_activities, find_successors, etc.) don't cover the question. Call get_wc_schema first for join keys. Tables: activity_library, activity_assignments, skill_library, role_skill_requirements, employee_skills, activity_skill_requirements. If ok:false: check the error, call get_wc_schema to verify names, and retry.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        sql:    { type: 'string', description: 'A valid AlaSQL SELECT statement. No mutations allowed.' },
-        reason: { type: 'string', description: 'Optional: why domain tools were insufficient for this question.' },
-      },
-      required: ['sql'],
     },
   },
   {

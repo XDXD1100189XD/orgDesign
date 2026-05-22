@@ -9,3 +9,7 @@
 
  ✓ Starting...
  ✓ Ready in 6s
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 4.9s (526 modules)
+ GET /serviceworker.js 404 in 5925ms
+ GET /serviceworker.js 404 in 237ms

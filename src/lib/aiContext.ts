@@ -130,12 +130,12 @@ When WC data is loaded, follow this order for EVERY WC question:
    - \`assess_succession_risks\` — org-wide succession risk scan
 2. **SQL fallback** — ONLY if no domain tool fits, or domain tool returned empty/insufficient results:
    a. Call \`get_wc_schema\` to inspect column names, PKs, FK join paths, and example queries
-   b. Call \`run_wc_sql\` with a targeted SELECT; default LIMIT 25 enforced automatically
+   b. Call \`run_sql\` with a targeted SELECT — WC tables (activity_library, activity_assignments, skill_library, role_skill_requirements, employee_skills, activity_skill_requirements) are available alongside org \`data\`
    c. Explain what was queried and what it shows — do not overclaim
 3. **Never use SQL as the first path** when a domain tool clearly covers the question
 4. **WC SQL is evidence-gathering** — inferences from SQL results must include caveats ("based on available WC data only")
 
-## WC SQL fallback — join paths (verify exact names with get_wc_schema)
+## WC SQL join paths (verify exact names with get_wc_schema)
 - activity_assignments.activity_id = activity_library.activity_id
 - activity_assignments.employee_id → links to org data; use \`find_employees\` to resolve names
 - employee_skills.skill_id = skill_library.skill_id
@@ -144,11 +144,11 @@ When WC data is loaded, follow this order for EVERY WC question:
 - activity_skill_requirements.activity_id = activity_library.activity_id
 - **Do not assume an employee_name column in WC tables** — always resolve IDs via \`find_employees\`
 
-## WC SQL fallback — examples
-- "Which activities require Python?" → \`get_wc_schema\` → \`run_wc_sql\` joining activity_skill_requirements + skill_library + activity_library on skill_name LIKE '%Python%'
-- "Which skills required by the most roles?" → \`run_wc_sql\`: SELECT skill_id, COUNT(*) FROM role_skill_requirements GROUP BY skill_id ORDER BY COUNT(*) DESC
-- "Why did find_successors return no candidates for Director of Strategy?" → \`run_wc_sql\` COUNT(*) on role_skill_requirements for that role → COUNT(DISTINCT employee_id) from employee_skills → report the gap
-- "Employees with skill X assigned to activity Y?" → \`run_wc_sql\` joining employee_skills + activity_assignments`;
+## WC SQL examples (use run_sql for all of these)
+- "Which activities require Python?" → \`get_wc_schema\` → \`run_sql\` joining activity_skill_requirements + skill_library + activity_library on skill_name LIKE '%Python%'
+- "Which skills required by the most roles?" → \`run_sql\`: SELECT skill_id, COUNT(*) FROM role_skill_requirements GROUP BY skill_id ORDER BY COUNT(*) DESC
+- "Why did find_successors return no candidates for Director of Strategy?" → \`run_sql\` COUNT(*) on role_skill_requirements for that role → COUNT(DISTINCT employee_id) from employee_skills → report the gap
+- "Employees with skill X assigned to activity Y?" → \`run_sql\` joining employee_skills + activity_assignments`;
 
   return `You are an org analytics assistant embedded in an HR org-design tool. You help HR leaders, finance teams, and org designers understand org structure, headcount, compensation, and people data.
 

@@ -412,16 +412,6 @@ function sanitizeToolResultForAI(name: string, result: unknown): unknown {
     };
   }
 
-  // run_wc_sql: strip sensitive fields, cap to 10 sample rows for Claude
-  if (name === 'run_wc_sql') {
-    const r = result as { ok?: boolean; rows?: Record<string, unknown>[]; error?: string };
-    if (!r.ok || !r.rows) return result;
-    return {
-      ok: r.ok,
-      ...summarizeRowsForAI(r.rows, 10),
-      ...(r.rows.length > 10 ? { note: `Full ${r.rows.length} rows visible in the UI. Narrow query for more detail.` } : {}),
-    };
-  }
 
   // get_column_values: omit values entirely for sensitive columns; cap to top 10 for others
   if (name === 'get_column_values') {
@@ -701,7 +691,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
 
         const WC_TABLES = ['activity_library','activity_assignments','skill_library','role_skill_requirements','employee_skills','activity_skill_requirements'];
         if (isWrite && WC_TABLES.some(t => new RegExp(`\\b${t}\\b`, 'i').test(raw))) {
-          return { ok: false, error: 'WC tables are read-only. Mutations on activity_library, skill_library, and related tables are not allowed. Use run_wc_sql for read-only WC queries.' };
+          return { ok: false, error: 'WC tables are read-only. Use SELECT to query activity_library, skill_library, and related tables.' };
         }
 
         const beforeWriteRows: ExcelRow[] = isWrite
@@ -912,30 +902,6 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           .map(r => `${r.from} JOIN ${r.to} ON ${r.from}.${r.key} = ${r.to}.${r.key}`);
         const orgJoinNote = 'To join with org data use: <wc_table>.employee_id = data.`Employee ID` (replace "Employee ID" with your actual employee ID column name from get_schema)';
         return { schemas, joinExamples, orgJoinNote };
-      }
-
-      if (name === 'run_wc_sql') {
-        const rawSql = ((toolInput.sql as string) ?? '').trim();
-        const wcVerb = rawSql.toUpperCase().split(/[\s(]/)[0];
-        const BLOCKED_VERBS = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TRUNCATE'];
-        if (BLOCKED_VERBS.includes(wcVerb)) {
-          return { ok: false, error: `run_wc_sql is read-only. '${wcVerb}' is not allowed on WC tables.` };
-        }
-        const wcSql = /\bLIMIT\b/i.test(rawSql) ? rawSql : `${rawSql.replace(/;?\s*$/, '')} LIMIT 25`;
-        try {
-          const wcResult = alasql(wcSql) as unknown;
-          if (Array.isArray(wcResult)) {
-            const rows = wcResult as Record<string, unknown>[];
-            const total = rows.length;
-            const capped = rows.slice(0, 100);
-            return total > 100
-              ? { ok: true, rows: capped, truncated: true, total_rows: total, note: `Showing first 100 of ${total} rows. Use WHERE or LIMIT to narrow.` }
-              : { ok: true, rows: capped };
-          }
-          return { ok: true, result: wcResult };
-        } catch (e) {
-          return { ok: false, error: `SQL error: ${String(e)}. Call get_wc_schema to verify table and column names, then retry.` };
-        }
       }
 
       if (name === 'analyze_activities') {
@@ -1757,7 +1723,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       return { error: `Unknown tool: ${name}` };
     }
 
-    for (let step = 0; step < 8; step++) {
+    for (let step = 0; step < 15; step++) {
       const aId = uid();
       let aText = '';
       const pendingTools: ToolUseEvent[] = [];
@@ -1840,10 +1806,6 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           summary = 'Schema checked ✓';
         } else if (tc.name === 'get_wc_schema') {
           summary = 'WC schema loaded ✓';
-        } else if (tc.name === 'run_wc_sql') {
-          const r = result as { ok?: boolean; error?: string; row_count?: number; truncated_for_ai?: boolean };
-          if (!r.ok) { error = r.error ?? 'WC SQL error'; }
-          else { summary = `WC SQL: ${r.row_count ?? 0} row${(r.row_count ?? 0) !== 1 ? 's' : ''} returned ✓`; }
         } else if (tc.name === 'analyze_activities') {
           const r = result as Record<string, unknown>;
           if (r.error) { error = r.error as string; }
@@ -1976,7 +1938,6 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
     get_change_log:     'Reading change log',
     get_comp_bands:     'Reading comp bands',
     get_wc_schema:               'Reading WC table schema',
-    run_wc_sql:                  'Running WC SQL query',
     analyze_activities:          'Analyzing activities',
     get_employee_activity_load:  'Loading activity portfolio',
     get_critical_skills:         'Scanning critical skills',
