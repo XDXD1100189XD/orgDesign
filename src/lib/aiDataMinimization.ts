@@ -24,7 +24,25 @@ export const SENSITIVE_FIELD_PATTERNS: RegExp[] = [
   /expenses/i,
   /overtime/i,
   /email/i,
+  /\bannual_rate\b/i,
+  /\bbase_pay\b/i,
+  /\bpay_rate\b/i,
+  /\btotal_pay\b/i,
 ];
+
+const NAME_FIELD_PATTERNS: RegExp[] = [
+  /\bname\b/i,
+  /display_name/i,
+  /full_name/i,
+  /first_name/i,
+  /last_name/i,
+];
+
+export function stripNameFieldsFromRow(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => !NAME_FIELD_PATTERNS.some(p => p.test(key)))
+  );
+}
 
 export function isSensitiveField(key: string): boolean {
   return SENSITIVE_FIELD_PATTERNS.some(p => p.test(key));

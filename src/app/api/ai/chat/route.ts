@@ -7,14 +7,14 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'run_sql',
     description:
-      'Execute a SQL query against the in-memory AlaSQL tables. The primary org table is named `data`. When Work & Capability data is loaded, these additional tables are also available for SELECT and JOIN: `activity_library`, `skill_library`, `activity_assignments`, `employee_skills`, `role_skill_requirements`, `activity_skill_requirements`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations (on `data` only — WC tables are read-only). Mutations require user confirmation. Call `get_wc_schema` first to learn join keys before writing cross-table queries. If this returns { ok: false, error: "..." }, fix and retry. For Work & Capability questions, prefer domain WC tools (analyze_activities, find_successors, etc.) first — use run_sql as the SQL fallback for both org and WC tables.',
+      'Execute a SQL query against the in-memory AlaSQL tables (NOT PostgreSQL). The primary org table is named `data`. When Work & Capability data is loaded, these additional tables are also available for SELECT and JOIN: `activity_library`, `skill_library`, `activity_assignments`, `employee_skills`, `role_skill_requirements`, `activity_skill_requirements`. Use SELECT for queries and INSERT/UPDATE/DELETE for mutations (on `data` only — WC tables are read-only). Mutations require user confirmation. Call `get_wc_schema` first to learn join keys before writing cross-table queries. If this returns { ok: false, error: "..." }, fix and retry. For Work & Capability questions, prefer domain WC tools (analyze_activities, find_successors, etc.) first — use run_sql as the SQL fallback for both org and WC tables. NEVER USE: window functions (OVER/PARTITION BY — silently wrong), RANK()/DENSE_RANK()/NTILE(), LEAD()/LAG(), FIRST_VALUE()/LAST_VALUE(), STDDEV/VAR_POP/VAR_SAMP, STRING_AGG/GROUP_CONCAT, CONCAT_WS, WITH/CTEs, EXCEPT/INTERSECT, FETCH FIRST n ROWS ONLY, INSERT ON CONFLICT, PostgreSQL-specific syntax (::cast, ILIKE, RETURNING). SAFE: SELECT/FROM/WHERE/GROUP BY/HAVING/ORDER BY/LIMIT/JOIN/CASE WHEN/IS NULL/LIKE/subqueries/COALESCE/INSERT OR REPLACE.',
     input_schema: {
       type: 'object' as const,
       properties: {
         query: {
           type: 'string',
           description:
-            'A valid AlaSQL statement. Column names with spaces must be backtick-quoted. Org table is `data`; WC tables use their real names (e.g. SELECT * FROM skill_library LIMIT 5).',
+            'A valid AlaSQL statement. Column names with spaces must be backtick-quoted. Org table is `data`; WC tables use their real names. FORBIDDEN: any OVER clause (window functions silently return wrong results — use GROUP BY instead), RANK()/DENSE_RANK() (use ORDER BY + LIMIT), WITH/CTEs (use subqueries), EXCEPT/INTERSECT (use JOIN + WHERE NOT IN), FETCH FIRST (use LIMIT), STRING_AGG/GROUP_CONCAT (fetch rows and list in response text). Use only standard aggregates: COUNT, SUM, AVG, MIN, MAX.',
         },
       },
       required: ['query'],
@@ -32,7 +32,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_schema',
     description:
-      'Returns the exact list of column names available in the org `data` table, plus a summary of Work & Capability tables available for JOIN (when WC data is loaded). Call this if you are unsure about column names before writing SQL.',
+      'Returns the exact list of column names (with inferred data types) available in the org `ai_employees` table, plus a summary of Work & Capability tables available for JOIN (when WC data is loaded). Call this if you are unsure about column names before writing SQL. Always use the exact column names returned here — never guess or invent column names.',
     input_schema: {
       type: 'object' as const,
       properties: {},
@@ -41,7 +41,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_wc_schema',
     description:
-      'Returns the full schema — columns (raw + derived), primary key, foreign key relationships, ready-to-use JOIN examples, per-table recommended use cases, and 2–3 safe example queries — for all Work & Capability tables. Call this BEFORE writing any multi-table SQL that involves activity_library, skill_library, activity_assignments, employee_skills, role_skill_requirements, or activity_skill_requirements. Only useful when WC data is loaded (check with get_schema first).',
+      'Returns the full schema — columns (with types), primary keys, foreign key relationships, mandatory JOIN templates, and 2–3 safe example queries — for all Work & Capability tables. ALWAYS call this before writing any multi-table SQL involving activity_library, skill_library, activity_assignments, employee_skills, role_skill_requirements, or activity_skill_requirements. Start every WC query from the provided JOIN templates — never invent join paths. Only useful when WC data is loaded (check with get_schema first).',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -428,11 +428,16 @@ function sanitizeMessages(messages: AnyMessage[]): AnyMessage[] {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, systemContext } = await req.json();
+  const { messages, systemContext, allowedTools } = await req.json();
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
+
+  // Tool gating: restrict visible tools to the planner-approved allowlist
+  const filteredTools = Array.isArray(allowedTools) && (allowedTools as string[]).length > 0
+    ? TOOLS.filter(t => (allowedTools as string[]).includes(t.name))
+    : TOOLS;
 
   const encoder = new TextEncoder();
 
@@ -448,7 +453,7 @@ export async function POST(req: NextRequest) {
           max_tokens: 4096,
           system: [{ type: 'text' as const, text: systemContext as string, cache_control: { type: 'ephemeral' } }],
           messages: sanitizeMessages(messages as AnyMessage[]) as Anthropic.MessageParam[],
-          tools: TOOLS,
+          tools: filteredTools,
         });
 
         // Track current tool_use block being assembled

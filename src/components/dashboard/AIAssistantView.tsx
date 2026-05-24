@@ -5,6 +5,15 @@ import type { CompMatrix, DashboardData, AIChartRequest, ScenarioAction, Validat
 import type { ExcelRow } from '@/lib/parseExcel';
 import type { PendingData } from '@/lib/story/types';
 import { buildSystemContext } from '@/lib/aiContext';
+import {
+  buildExecutionPlan,
+  buildStrictModePlan,
+  decomposeIntoTasks,
+  injectPlanIntoContext,
+  validateFinalAnswerAgainstTasks,
+  extractSchemaSection,
+  type ExecutionPlan,
+} from '@/lib/queryPlanner';
 import { isSensitiveField, summarizeRowsForAI } from '@/lib/aiDataMinimization';
 import { validateAndSimulate, applyActions } from '@/lib/scenarioPlanner';
 import { repairDeletedManagerReferences } from '@/lib/hierarchyRows';
@@ -150,9 +159,29 @@ type SSEEvent = TextDeltaEvent | ToolUseEvent | DoneEvent | ErrorEvent;
 type DisplayMsg =
   | { id: string; kind: 'user';          text: string }
   | { id: string; kind: 'assistant';     text: string; streaming: boolean }
+  | { id: string; kind: 'planning';      intent?: string; toolCount?: number; model?: string }
   | { id: string; kind: 'tool_call';     name: string; sql?: string }
-  | { id: string; kind: 'tool_result';   name: string; rows?: Record<string, unknown>[]; rowCount?: number; error?: string; isMetrics?: boolean; summary?: string }
+  | { id: string; kind: 'tool_result';   name: string; rows?: Record<string, unknown>[]; rowCount?: number; error?: string; isMetrics?: boolean; summary?: string; sql?: string; validationError?: string }
   | { id: string; kind: 'chart_created'; title: string };
+
+// ── Data log types ─────────────────────────────────────────────────────────────
+
+interface ToolCallLog {
+  toolName: string;
+  input: Record<string, unknown>;
+  sanitizedResult: unknown;
+  badges: string[];
+}
+interface IterationLog {
+  iterationNum: number;
+  toolCalls: ToolCallLog[];
+}
+interface QueryLog {
+  id: string;
+  userQuery: string;
+  timestamp: string;
+  iterations: IterationLog[];
+}
 
 // ── Hierarchy enrichment (mirrors AnalyticsStudioView) ────────────────────────
 
@@ -403,11 +432,22 @@ function sanitizeToolResultForAI(name: string, result: unknown): unknown {
   if (name === 'run_sql') {
     const r = result as { ok?: boolean; rows?: Record<string, unknown>[]; error?: string; truncated?: boolean; total_rows?: number };
     if (!r.ok || !r.rows) return result;
+    const totalRows = r.rows.length;
+    if (totalRows === 0) {
+      return {
+        ok: r.ok,
+        rows: [],
+        row_count: 0,
+        result_is_complete: true,
+        advisory: 'No rows returned. Before concluding the data does not exist: verify column names are correct, check string case sensitivity (use LOWER()), and verify filter values using get_column_values.',
+      };
+    }
     return {
       ok: r.ok,
       ...summarizeRowsForAI(r.rows, 5),
-      ...(r.rows.length > 5
-        ? { note: `Full ${r.rows.length} rows visible in the UI. Use a more targeted query to narrow results.` }
+      result_is_complete: totalRows <= 5,
+      ...(totalRows > 5
+        ? { note: `Showing 5 of ${totalRows} total rows. This is a representative sample — you do NOT need to fetch more rows unless the question specifically requires seeing all records.` }
         : {}),
     };
   }
@@ -432,13 +472,13 @@ function sanitizeToolResultForAI(name: string, result: unknown): unknown {
     };
   }
 
-  // get_employee_activity_load: strip full activities array; keep summary stats + top 3
+  // get_employee_activity_load: strip full activities array; keep summary stats + top 3 (by ID, no name)
   if (name === 'get_employee_activity_load') {
     const r = result as Record<string, unknown>;
     if (r.error) return result;
     const activities = r.activities as Record<string, unknown>[] | undefined;
     const top3 = activities?.slice(0, 3).map(a => ({
-      activity_name:        a.activity_name ?? a.activity_id,
+      activity_id:          a.activity_id,
       time_allocation_pct:  a.time_allocation_pct,
       accountability:       a.accountability,
       criticality:          a.activity_criticality,
@@ -458,41 +498,58 @@ function sanitizeToolResultForAI(name: string, result: unknown): unknown {
     return { ...rest, affected_employee_count: previews?.length ?? 0 };
   }
 
-  // analyze_activities: cap per-bucket arrays to 15 rows
+  // analyze_activities: cap per-bucket arrays to 15 rows; strip activity_name (keep activity_id)
   if (name === 'analyze_activities') {
     const r = result as Record<string, unknown>;
     const trimmed: Record<string, unknown> = { ...r };
+    const stripActivityName = (item: unknown) => {
+      const { activity_name: _n, ...rest } = item as Record<string, unknown>;
+      void _n;
+      return rest;
+    };
     for (const key of ['automation_candidates', 'outsourcing_candidates', 'understaffed_activities', 'skill_coverage_gaps', 'workload_concentration']) {
       if (Array.isArray(trimmed[key])) {
         const arr = trimmed[key] as unknown[];
-        if (arr.length > 15) { trimmed[key] = arr.slice(0, 15); trimmed[`${key}_total`] = arr.length; }
+        const capped = arr.slice(0, 15);
+        trimmed[key] = capped.map(stripActivityName);
+        if (arr.length > 15) trimmed[`${key}_total`] = arr.length;
       }
     }
     return trimmed;
   }
 
-  // get_critical_skills: cap per-bucket arrays to 15 rows
+  // get_critical_skills: cap per-bucket arrays to 15 rows; strip skill_name (keep skill_id)
   if (name === 'get_critical_skills') {
     const r = result as Record<string, unknown>;
     const trimmed: Record<string, unknown> = { ...r };
+    const stripSkillName = (item: unknown) => {
+      const { skill_name: _n, ...rest } = item as Record<string, unknown>;
+      void _n;
+      return rest;
+    };
     for (const key of ['single_point_risk_skills', 'low_coverage_skills', 'supply_demand_alerts']) {
       if (Array.isArray(trimmed[key])) {
         const arr = trimmed[key] as unknown[];
-        if (arr.length > 15) { trimmed[key] = arr.slice(0, 15); trimmed[`${key}_total`] = arr.length; }
+        const capped = arr.slice(0, 15);
+        trimmed[key] = capped.map(stripSkillName);
+        if (arr.length > 15) trimmed[`${key}_total`] = arr.length;
       }
     }
     return trimmed;
   }
 
-  // analyze_skill_gaps: cap gaps array to 20
+  // analyze_skill_gaps: cap gaps array to 20; strip skill_name (keep skill_id)
   if (name === 'analyze_skill_gaps') {
     const r = result as Record<string, unknown>;
     if (r.error) return result;
-    if (Array.isArray(r.gaps) && (r.gaps as unknown[]).length > 20) {
-      const arr = r.gaps as unknown[];
-      return { ...r, gaps: arr.slice(0, 20), gaps_total: arr.length };
-    }
-    return result;
+    const gaps = (r.gaps as unknown[] | undefined) ?? [];
+    const capped = gaps.slice(0, 20);
+    const stripped = capped.map(item => {
+      const { skill_name: _n, ...rest } = item as Record<string, unknown>;
+      void _n;
+      return rest;
+    });
+    return { ...r, gaps: stripped, ...(gaps.length > 20 ? { gaps_total: gaps.length } : {}) };
   }
 
   if (name === 'find_successors') {
@@ -537,7 +594,10 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
   const [input,          setInput]          = useState('');
   const [busy,           setBusy]           = useState(false);
   const [writeMode,      setWriteMode]      = useState(false);
+  const [strictMode,     setStrictMode]     = useState(false);
   const [copiedSqlId,    setCopiedSqlId]    = useState<string | null>(null);
+  const [dataLog,        setDataLog]        = useState<QueryLog[]>([]);
+  const [dataLogOpen,    setDataLogOpen]    = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<{
     sql: string;
     resolve: (confirmed: boolean) => void;
@@ -563,6 +623,8 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
   const dataRef             = useRef(data);
   const toBeDataRef         = useRef(toBeData);
   const writeModeRef        = useRef(writeMode);
+  const strictModeRef       = useRef(strictMode);
+  const currentQueryLogRef  = useRef<QueryLog | null>(null);
   const onRowsChangeRef     = useRef(onRowsChange);
   const onCreateChartRef    = useRef(onCreateChart);
   const onDataChangeRef     = useRef(onDataChange);
@@ -586,6 +648,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
   dataRef.current           = data;
   toBeDataRef.current       = toBeData;
   writeModeRef.current      = writeMode;
+  strictModeRef.current     = strictMode;
   onRowsChangeRef.current   = onRowsChange;
   onCreateChartRef.current  = onCreateChart;
   onDataChangeRef.current   = onDataChange;
@@ -673,18 +736,145 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
     setDisplayMsgs(prev => prev.map(m => m.id === id && m.kind === 'assistant' ? { ...m, streaming: false } : m));
   }
 
+  // ── AlaSQL unsupported-syntax guard ─────────────────────────────────────────
+  // Called before every run_sql execution to catch patterns that silently return
+  // wrong results or throw without a useful message in AlaSQL.
+  function checkUnsupportedSQL(sql: string): string | null {
+    if (/\bOVER\s*\(/i.test(sql))
+      return 'AlaSQL does not support window functions (OVER clause) — SUM/COUNT/AVG OVER PARTITION BY collapses to a single row silently; ROW_NUMBER() OVER is not implemented. Use GROUP BY aggregates or subqueries instead.';
+    if (/\b(RANK|DENSE_RANK)\s*\(\s*\)/i.test(sql))
+      return 'AlaSQL does not support RANK() or DENSE_RANK(). Use ORDER BY with LIMIT to get top-N results instead.';
+    if (/\bNTILE\s*\(/i.test(sql))
+      return 'AlaSQL does not support NTILE(). Use CASE WHEN with computed thresholds to assign buckets.';
+    if (/\b(LEAD|LAG)\s*\(/i.test(sql))
+      return 'AlaSQL does not support LEAD() or LAG(). Use a self-join or subquery to compare adjacent rows.';
+    if (/\b(FIRST_VALUE|LAST_VALUE)\s*\(/i.test(sql))
+      return 'AlaSQL does not support FIRST_VALUE() or LAST_VALUE(). Use MIN()/MAX() with GROUP BY or a correlated subquery.';
+    if (/\b(STDDEV|STDDEV_POP|STDDEV_SAMP|VAR_POP|VAR_SAMP)\b/i.test(sql))
+      return 'AlaSQL does not support statistical aggregates (STDDEV, VAR_POP, VAR_SAMP, etc.). Compute manually: SELECT AVG(col) then calculate from raw rows if needed.';
+    if (/\b(BIT_AND|BIT_OR|BIT_XOR)\b/i.test(sql))
+      return 'AlaSQL does not support bitwise aggregates (BIT_AND, BIT_OR, BIT_XOR).';
+    if (/\b(STRING_AGG|GROUP_CONCAT|LISTAGG)\s*\(/i.test(sql))
+      return 'AlaSQL does not natively support STRING_AGG / GROUP_CONCAT / LISTAGG. Fetch the rows with run_sql and list them in your response text instead.';
+    if (/\bCONCAT_WS\s*\(/i.test(sql))
+      return 'AlaSQL does not support CONCAT_WS(). Use string concatenation with the + operator instead.';
+    if (/FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY/i.test(sql))
+      return 'AlaSQL does not support FETCH FIRST n ROWS ONLY. Use LIMIT n instead.';
+    if (/\bON\s+CONFLICT\b/i.test(sql))
+      return 'AlaSQL does not support INSERT ... ON CONFLICT (UPSERT). Use INSERT OR REPLACE instead.';
+    return null;
+  }
+
+  // ── Data log badge derivation ─────────────────────────────────────────────────
+  function deriveBadges(toolName: string, _rawResult: unknown, sanitizedResult: unknown): string[] {
+    if (toolName === 'get_schema' || toolName === 'get_wc_schema') return ['schema only'];
+    if (toolName === 'get_metrics') return ['aggregates only'];
+    if (toolName === 'run_sql') {
+      const s = sanitizedResult as { mode?: string; row_count?: number; sample?: unknown[]; sensitive_columns_stripped?: boolean };
+      if (s.mode === 'strict') return ['SQL only — not executed'];
+      const badges: string[] = [];
+      if (typeof s.row_count === 'number') {
+        const shown = Array.isArray(s.sample) ? s.sample.length : 0;
+        badges.push(`${shown} of ${s.row_count} rows`);
+      }
+      if (s.sensitive_columns_stripped) badges.push('sensitive fields hidden');
+      return badges;
+    }
+    if (toolName === 'find_employees' || toolName === 'get_hierarchy_path') return ['employee data'];
+    const wcTools = ['analyze_activities','get_employee_activity_load','get_critical_skills','analyze_skill_gaps','find_successors','map_talent_to_need','assess_succession_risks'];
+    if (wcTools.includes(toolName)) return ['IDs only · names stripped'];
+    return [];
+  }
+
+  // ── Pre-ReAct planner — tries Sonnet API, falls back to heuristic ───────────
+  async function runPlanner(userText: string, systemCtx: string, wcAvailable: boolean): Promise<ExecutionPlan> {
+    try {
+      const res = await fetch('/api/ai/plan', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userText,
+          schemaContext: extractSchemaSection(systemCtx),
+          wcAvailable,
+          writeMode: writeModeRef.current,
+        }),
+      });
+      if (res.ok) {
+        const { plan } = await res.json() as { plan?: ExecutionPlan };
+        if (plan?.tasks?.length) return plan;
+      }
+    } catch { /* fall through to heuristic */ }
+    return buildExecutionPlan(decomposeIntoTasks(userText));
+  }
+
   // ── ReAct send loop ──────────────────────────────────────────────────────────
   const send = useCallback(async (userText: string) => {
     if (!userText.trim() || busy) return;
     setBusy(true);
     setInput('');
 
+    // ── STEP 0: Plan — classify intent, gate vague queries, compute budget ──────
+    const wcAvailable = ['activity_library', 'skill_library', 'activity_assignments'].some(
+      t => (alasql.tables[t]?.data?.length ?? 0) > 0
+    );
+    const planningId = uid();
+    setDisplayMsgs(prev => [...prev,
+      { id: uid(), kind: 'user', text: userText },
+      { id: planningId, kind: 'planning' },
+    ]);
+
+    // Strict mode bypasses the Sonnet/heuristic planner — fixed plan with 3 tools only.
+    const plan = strictModeRef.current
+      ? buildStrictModePlan(userText)
+      : await runPlanner(userText, systemCtxRef.current, wcAvailable);
+
+    // Update the planning bubble with resolved intent + tool count
+    setDisplayMsgs(prev => prev.map(m =>
+      m.id === planningId
+        ? { ...m, intent: plan.overallIntent, toolCount: plan.allowedTools.length, model: plan.plannerModel }
+        : m
+    ));
+
+    if (plan.shouldAskClarification) {
+      setDisplayMsgs(prev => prev.filter(m => m.id !== planningId).concat([
+        { id: uid(), kind: 'assistant', text: plan.clarificationMessage ?? 'Could you be more specific about what you\'d like to know?', streaming: false },
+      ]));
+      setBusy(false);
+      return;
+    }
+
+    const effectiveAllowedTools = strictModeRef.current
+      ? ['get_schema', 'get_wc_schema', 'run_sql']
+      : plan.allowedTools;
+    // Tool permissions are already in the injected plan block (PERMITTED/FORBIDDEN TOOLS).
+    // Only add the two behavioral rules the plan cannot express.
+    const strictModeBlock = strictModeRef.current
+      ? `\n\n## STRICT MODE ACTIVE\n- run_sql does NOT execute — it validates your SQL against AlaSQL and returns the query text. If validation fails you will receive a validation_error — revise and retry with a simpler query.\n- In your final response, present each SQL query in a code block labeled "SQL to run:" so the user can copy it.\n\nAlaSQL CONSTRAINTS — these patterns cause runtime errors, do not use:\n- Correlated subqueries (subquery referencing outer table column): use LEFT JOIN instead\n- MIN() or MAX() wrapping a subquery that contains GROUP BY aggregates: use a derived table in FROM clause instead\n- GROUP_CONCAT / STRING_AGG: not supported — omit from SQL, list values in response text\n- Nested aggregates SELECT MIN(SUM(...)): restructure with subquery in FROM\n- More than 2 levels of subquery nesting: split into two simpler queries\nPREFERRED: simple SELECT … FROM … LEFT JOIN … GROUP BY … HAVING … ORDER BY … LIMIT`
+      : '';
+    const enrichedSystemCtx = injectPlanIntoContext(systemCtxRef.current, plan) + strictModeBlock;
+
     const userApiMsg: RawMessage = { role: 'user', content: userText };
     let current: RawMessage[] = [...compressHistory(rawMsgs), userApiMsg];
-    setDisplayMsgs(prev => [...prev, { id: uid(), kind: 'user', text: userText }]);
+    let finalAnswerText = '';
+    currentQueryLogRef.current = { id: uid(), userQuery: userText, timestamp: new Date().toISOString(), iterations: [] };
 
     async function executeTool(name: string, toolInput: Record<string, unknown>): Promise<unknown> {
       if (name === 'run_sql') {
+        if (strictModeRef.current) {
+          const query = (toolInput as { query: string }).query;
+          let validationError: string | undefined;
+          try { alasql(query); } catch (e) {
+            validationError = e instanceof Error ? e.message : String(e);
+          }
+          return {
+            mode: 'strict',
+            query,
+            note: validationError
+              ? 'Query failed AlaSQL validation — revise for AlaSQL compatibility and retry.'
+              : 'Query not executed — Strict Mode is active. Copy this SQL and run it manually.',
+            validation_error: validationError,
+          };
+        }
         const raw  = toolInput.query as string;
         const verb = raw.trim().toUpperCase().split(/[\s(]/)[0];
         const isWrite = ['UPDATE', 'DELETE', 'INSERT'].includes(verb);
@@ -713,6 +903,8 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
             .replace(/\bFROM\s+data\b/gi,  `FROM ${AI_TABLE}`)
             .replace(/\bJOIN\s+data\b/gi,   `JOIN ${AI_TABLE}`)
             .replace(/\bUPDATE\s+data\b/gi, `UPDATE ${AI_TABLE}`);
+          const unsupportedErr = checkUnsupportedSQL(sql);
+          if (unsupportedErr) return { ok: false, error: unsupportedErr };
           const result = alasql(sql);
           if (isWrite) {
             const updated: ExcelRow[] = alasql.tables[AI_TABLE]?.data ?? [];
@@ -731,14 +923,21 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
                 : undefined,
             });
           }
+          // Warn if aggregate used without GROUP BY (likely AlaSQL misuse)
+          const hasAggregate = /\b(COUNT|SUM|AVG|MAX|MIN)\s*\(/i.test(raw);
+          const hasGroupBy   = /\bGROUP\s+BY\b/i.test(raw);
+          const groupByWarning = hasAggregate && !hasGroupBy
+            ? 'Warning: query uses an aggregate function without GROUP BY. If you are grouping by a column, add GROUP BY <column> to get per-group counts. Without it, a single aggregate over all rows is returned.'
+            : undefined;
           if (Array.isArray(result)) {
             const total = result.length;
             const rows  = result.slice(0, 100);
-            return total > 100
+            const base = total > 100
               ? { ok: true, rows, truncated: true, total_rows: total, note: `Showing first 100 of ${total} rows. Use WHERE, GROUP BY, or LIMIT to narrow results.` }
               : { ok: true, rows };
+            return groupByWarning ? { ...base, groupby_warning: groupByWarning } : base;
           }
-          return { ok: true, rows: [] };
+          return { ok: true, rows: [], ...(groupByWarning ? { groupby_warning: groupByWarning } : {}) };
         } catch (e) { return { ok: false, error: String(e) }; }
       }
 
@@ -788,8 +987,25 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       }
 
       if (name === 'get_schema') {
-        const sample = alasql.tables[AI_TABLE]?.data?.[0];
-        const orgCols = sample ? Object.keys(sample) : [];
+        const tableData: Record<string, unknown>[] = alasql.tables[AI_TABLE]?.data ?? [];
+        const sample = tableData[0];
+        const orgCols = sample
+          ? Object.keys(sample).map(col => {
+              const vals = tableData.map(r => r[col]).filter(v => v != null);
+              let type = 'unknown';
+              if (vals.length > 0) {
+                const first = vals[0];
+                if (typeof first === 'boolean') type = 'boolean';
+                else if (typeof first === 'number') type = 'number';
+                else {
+                  // check if all non-null values look like numbers
+                  const allNumeric = vals.every(v => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))));
+                  type = allNumeric ? 'number (stored as string — use numeric comparison carefully)' : 'string';
+                }
+              }
+              return { column: col, type };
+            })
+          : [];
         const wcTableNames = [
           'activity_library', 'activity_assignments', 'skill_library',
           'role_skill_requirements', 'employee_skills', 'activity_skill_requirements',
@@ -806,11 +1022,12 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           .map(t => ({ table: t, rows: (alasql.tables[t]?.data?.length ?? 0), primaryKey: wcPrimaryKeys[t] }))
           .filter(t => t.rows > 0);
         return {
+          org_table: AI_TABLE,
           org_data_columns: orgCols,
           wc_tables_available: wcTablesAvailable,
           note: wcTablesAvailable.length > 0
-            ? 'Call get_wc_schema for full column lists and JOIN examples for the WC tables.'
-            : 'No Work & Capability data loaded.',
+            ? 'Use exact column names from org_data_columns above. Call get_wc_schema for full column lists and JOIN templates for WC tables.'
+            : 'Use exact column names from org_data_columns above. No Work & Capability data loaded.',
         };
       }
 
@@ -900,8 +1117,15 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         const joinExamples = relationships
           .filter(r => r.to !== 'org data')
           .map(r => `${r.from} JOIN ${r.to} ON ${r.from}.${r.key} = ${r.to}.${r.key}`);
-        const orgJoinNote = 'To join with org data use: <wc_table>.employee_id = data.`Employee ID` (replace "Employee ID" with your actual employee ID column name from get_schema)';
-        return { schemas, joinExamples, orgJoinNote };
+        const orgJoinNote = 'To join WC tables with the org table use: <wc_table>.employee_id = ai_employees.<employee_id_column> (get the exact column name from get_schema first)';
+        const mandatoryJoinTemplates = [
+          'Employees with a specific skill: SELECT es.employee_id, es.current_level FROM employee_skills es JOIN skill_library sl ON es.skill_id = sl.skill_id WHERE LOWER(sl.skill_name) = LOWER(\'<skill>\')',
+          'Activities requiring a specific skill: SELECT al.activity_name, asr.required_level FROM activity_skill_requirements asr JOIN skill_library sl ON asr.skill_id = sl.skill_id JOIN activity_library al ON asr.activity_id = al.activity_id WHERE LOWER(sl.skill_name) = LOWER(\'<skill>\')',
+          'Employee activity load: SELECT aa.employee_id, al.activity_name, aa.time_allocation_pct FROM activity_assignments aa JOIN activity_library al ON aa.activity_id = al.activity_id WHERE aa.employee_id = \'<id>\'',
+          'Skills required by a role: SELECT sl.skill_name, rsr.required_level FROM role_skill_requirements rsr JOIN skill_library sl ON rsr.skill_id = sl.skill_id WHERE LOWER(rsr.position_title) = LOWER(\'<role>\')',
+        ];
+        const joinInstruction = 'IMPORTANT: Always start WC queries from one of the mandatoryJoinTemplates above. Do not invent join paths — only use relationships listed in joinExamples.';
+        return { schemas, joinExamples, orgJoinNote, mandatoryJoinTemplates, joinInstruction };
       }
 
       if (name === 'analyze_activities') {
@@ -1723,7 +1947,11 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       return { error: `Unknown tool: ${name}` };
     }
 
-    for (let step = 0; step < 15; step++) {
+    const loopBudget = strictModeRef.current ? plan.totalBudget : 15;
+    for (let step = 0; step < loopBudget; step++) {
+      if (currentQueryLogRef.current) {
+        currentQueryLogRef.current.iterations.push({ iterationNum: step + 1, toolCalls: [] });
+      }
       const aId = uid();
       let aText = '';
       const pendingTools: ToolUseEvent[] = [];
@@ -1736,7 +1964,11 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: current, systemContext: systemCtxRef.current }),
+          body: JSON.stringify({
+            messages:      current,
+            systemContext: enrichedSystemCtx,
+            allowedTools:  effectiveAllowedTools,
+          }),
         });
 
         if (!res.ok) {
@@ -1764,7 +1996,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
 
             if (evt.type === 'text_delta')  { aText += evt.text; patch(aId, aText); }
             if (evt.type === 'tool_use')    { pendingTools.push(evt); }
-            if (evt.type === 'done')        { fullMessage = evt.fullMessage; stopReason = evt.stop_reason; }
+            if (evt.type === 'done')        { fullMessage = evt.fullMessage; stopReason = evt.stop_reason; finalAnswerText = aText; }
             if (evt.type === 'error')       { throw new Error(evt.message); }
           }
         }
@@ -1778,7 +2010,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       if (!fullMessage) break;
       current = [...current, fullMessage];
 
-      if (stopReason === 'end_turn') break;
+      if (stopReason === 'end_turn' || stopReason === 'max_tokens') break;
 
       // Execute tool calls
       const toolResults: ToolResultContent[] = [];
@@ -1790,16 +2022,29 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         const aiResult  = sanitizeToolResultForAI(tc.name, result);
         const resultStr = JSON.stringify(aiResult);
 
+        if (currentQueryLogRef.current) {
+          const iter = currentQueryLogRef.current.iterations.at(-1);
+          if (iter) iter.toolCalls.push({ toolName: tc.name, input: tc.input, sanitizedResult: aiResult, badges: deriveBadges(tc.name, result, aiResult) });
+        }
+
         let resultRows: Record<string, unknown>[] | undefined;
         let rowCount:   number    | undefined;
         let error:      string    | undefined;
         let isMetrics              = false;
         let summary:    string    | undefined;
+        let strictSql:             string | undefined;
+        let strictSqlValidationError: string | undefined;
 
         if (tc.name === 'run_sql') {
-          const r = result as { ok: boolean; rows?: Record<string, unknown>[]; error?: string };
-          if (r.ok) { resultRows = r.rows ?? []; rowCount = resultRows.length; }
-          else      { error = r.error; }
+          const r = result as { ok?: boolean; mode?: string; query?: string; rows?: Record<string, unknown>[]; error?: string; validation_error?: string };
+          if (r.mode === 'strict') {
+            strictSql = r.query;
+            strictSqlValidationError = r.validation_error;
+          } else if (r.ok) {
+            resultRows = r.rows ?? []; rowCount = resultRows.length;
+          } else {
+            error = r.error;
+          }
         } else if (tc.name === 'get_metrics') {
           isMetrics = true;
         } else if (tc.name === 'get_schema') {
@@ -1897,7 +2142,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
 
         setDisplayMsgs(prev => [...prev, {
           id: uid(), kind: 'tool_result',
-          name: tc.name, rows: resultRows, rowCount, error, isMetrics, summary,
+          name: tc.name, rows: resultRows, rowCount, error, isMetrics, summary, sql: strictSql, validationError: strictSqlValidationError,
         }]);
         toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: resultStr });
       }
@@ -1915,6 +2160,27 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       return current;
     })();
     setRawMsgs(safeHistory);
+
+    // ── STEP 3: Completeness validation for multi-part queries ────────────────
+    if (plan.tasks.length > 1 && finalAnswerText) {
+      const { missedTasks } = validateFinalAnswerAgainstTasks(finalAnswerText, plan.tasks);
+      if (missedTasks.length > 0) {
+        const missed = plan.tasks.filter(t => missedTasks.includes(t.taskId));
+        const missedDescs = missed.map(t => `"${t.description}"`).join(' and ');
+        setDisplayMsgs(prev => [...prev, {
+          id:       uid(),
+          kind:     'assistant',
+          text:     `I may not have fully addressed: ${missedDescs}. Would you like me to continue with those?`,
+          streaming: false,
+        }]);
+      }
+    }
+
+    if (currentQueryLogRef.current) {
+      const logEntry = currentQueryLogRef.current;
+      currentQueryLogRef.current = null;
+      setDataLog(prev => [...prev, logEntry]);
+    }
     setBusy(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, rawMsgs]);
@@ -1945,6 +2211,32 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
     find_successors:             'Finding skill-match successors',
     map_talent_to_need:          'Mapping talent to need',
     assess_succession_risks:     'Assessing succession risks',
+  };
+
+  const DATA_LOG_LABELS: Record<string, string> = {
+    get_schema:                'Schema Lookup',
+    get_wc_schema:             'WC Schema Lookup',
+    get_metrics:               'Org Metrics',
+    get_column_values:         'Column Values',
+    run_sql:                   'Data Query',
+    find_employees:            'Employee Search',
+    get_hierarchy_path:        'Org Chart Lookup',
+    get_employee_activity_load:'Employee Workload',
+    analyze_activities:        'Activity Analysis',
+    get_critical_skills:       'Critical Skills',
+    analyze_skill_gaps:        'Skill Gap Analysis',
+    find_successors:           'Successor Finder',
+    map_talent_to_need:        'Talent Mapping',
+    assess_succession_risks:   'Succession Risk Scan',
+    get_comp_bands:            'Comp Bands',
+    compare_states:            'State Comparison',
+    create_chart:              'Chart Creation',
+    set_comp_bands:            'Set Comp Bands',
+    write_employees:           'Write Employees',
+    set_field_mapping:         'Field Mapping',
+    plan_scenario:             'Scenario Planning',
+    apply_scenario:            'Apply Scenario',
+    get_change_log:            'Change Log',
   };
 
   // Index of the last assistant message (for follow-up chips)
@@ -1987,6 +2279,8 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
             onClick={() => {
               setDisplayMsgs([]);
               setRawMsgs([]);
+              setDataLog([]);
+              setDataLogOpen(false);
               try { sessionStorage.removeItem(CHAT_STORAGE_KEY); } catch { /* ignore */ }
             }}
           >
@@ -1996,9 +2290,9 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       </div>
 
       {/* Permissions bar */}
-      <div className={`${styles.permBar} ${writeMode ? styles.permBarWrite : ''}`}>
+      <div className={`${styles.permBar} ${writeMode ? styles.permBarWrite : ''} ${strictMode ? styles.permBarStrict : ''}`}>
         <span className={styles.permIcon}>{writeMode ? '✎' : '🔒'}</span>
-        <span className={styles.permLabel}>Write Mode</span>
+        <span className={styles.permLabel}>Write</span>
         <button
           role="switch"
           aria-checked={writeMode}
@@ -2009,7 +2303,22 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           <span className={styles.permToggleThumb} />
         </button>
         {writeMode && (
-          <span className={styles.permWarning}>AI can now edit compensation bands</span>
+          <span className={styles.permWarning}>AI can edit comp bands</span>
+        )}
+        <span className={styles.permDivider} />
+        <span className={styles.permIcon}>🛡</span>
+        <span className={styles.permLabel}>Strict</span>
+        <button
+          role="switch"
+          aria-checked={strictMode}
+          className={`${styles.permToggle} ${strictMode ? styles.permToggleStrict : ''}`}
+          onClick={() => setStrictMode(s => !s)}
+          title={strictMode ? 'Disable strict mode' : 'Enable strict mode — schema only, SQL returned for manual run'}
+        >
+          <span className={styles.permToggleThumb} />
+        </button>
+        {strictMode && (
+          <span className={styles.permWarning}>Schema only · SQL returned for manual run</span>
         )}
       </div>
 
@@ -2067,6 +2376,31 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
             );
           }
 
+          if (msg.kind === 'planning') {
+            const INTENT_LABELS: Record<string, string> = {
+              factual_lookup:       'Factual lookup',
+              aggregation_count:    'Aggregation',
+              comparison:           'Comparison',
+              diagnostic_analysis:  'Diagnostic analysis',
+              workforce_capability: 'Workforce & capability',
+              scenario_change:      'Scenario change',
+              chart_report:         'Chart / report',
+              vague_exploratory:    'Clarifying',
+              multi_part:           'Multi-part query',
+            };
+            const resolved = !!msg.intent;
+            return (
+              <div key={msg.id} className={styles.planningRow}>
+                <span className={styles.planningDot} data-resolved={resolved} />
+                <span className={styles.planningText}>
+                  {resolved
+                    ? <>Planning <strong>{INTENT_LABELS[msg.intent!] ?? msg.intent}</strong> · {msg.toolCount} tool{msg.toolCount !== 1 ? 's' : ''} available</>
+                    : 'Planning query…'}
+                </span>
+              </div>
+            );
+          }
+
           if (msg.kind === 'tool_call') {
             return (
               <div key={msg.id} className={styles.toolCallRow}>
@@ -2091,6 +2425,27 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           }
 
           if (msg.kind === 'tool_result') {
+            if (msg.sql) {
+              return (
+                <div key={msg.id} className={styles.toolResultRow}>
+                  <span className={styles.resultMeta}>SQL to run (Strict Mode)</span>
+                  <div className={styles.sqlBlock}>
+                    <code className={styles.sqlCode}>{msg.sql}</code>
+                    <button
+                      className={`${styles.sqlCopyBtn} ${copiedSqlId === msg.id ? styles.copySqlCopied : ''}`}
+                      onClick={() => copySql(msg.id, msg.sql!)}
+                    >
+                      {copiedSqlId === msg.id ? '✓ Copied' : 'Copy SQL'}
+                    </button>
+                    {msg.validationError && (
+                      <p className={styles.sqlValidationError}>
+                        ⚠️ AlaSQL validation failed: {msg.validationError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            }
             if (msg.error) {
               return (
                 <div key={msg.id} className={styles.toolErrorRow}>
@@ -2314,6 +2669,57 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
               <button className={styles.confirmOk}     onClick={() => { pendingPlan.resolve(true);  setPendingPlan(null); }}>Apply</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Data log floating button + panel */}
+      {dataLog.length > 0 && (
+        <div className={styles.dataLogBtnWrap}>
+          <button className={styles.dataLogBtn} onClick={() => setDataLogOpen(o => !o)}>
+            📋 {dataLog.length} {dataLog.length === 1 ? 'query' : 'queries'} · {dataLog.reduce((n, q) => n + q.iterations.reduce((m, i) => m + i.toolCalls.length, 0), 0)} calls
+          </button>
+          {dataLogOpen && (
+            <div className={styles.dataLogPanel}>
+              <div className={styles.dataLogHeader}>
+                <span className={styles.dataLogTitle}>Data Transparency Log</span>
+                <button className={styles.dataLogClose} onClick={() => setDataLogOpen(false)}>×</button>
+              </div>
+              <div className={styles.dataLogBody}>
+                {dataLog.map((q, qi) => (
+                  <div key={q.id} className={styles.dataLogQuery}>
+                    <div className={styles.dataLogQueryTitle}>
+                      Query {qi + 1} — &ldquo;{q.userQuery.length > 65 ? q.userQuery.slice(0, 65) + '…' : q.userQuery}&rdquo;
+                    </div>
+                    {q.iterations.map(iter => (
+                      <div key={iter.iterationNum} className={styles.dataLogIter}>
+                        {q.iterations.length > 1 && (
+                          <div className={styles.dataLogIterLabel}>Iteration {iter.iterationNum}</div>
+                        )}
+                        {iter.toolCalls.map((tc, tci) => (
+                          <div key={tci} className={styles.dataLogTool}>
+                            <div className={styles.dataLogToolHeader}>
+                              <span className={styles.dataLogToolName}>{DATA_LOG_LABELS[tc.toolName] ?? tc.toolName}</span>
+                              <span className={styles.dataLogBadges}>
+                                {tc.badges.map(b => <span key={b} className={styles.dataLogBadge}>{b}</span>)}
+                              </span>
+                            </div>
+                            <details className={styles.dataLogDetails}>
+                              <summary className={styles.dataLogSummary}>What AI requested</summary>
+                              <pre className={styles.dataLogJson}>{JSON.stringify(tc.input, null, 2)}</pre>
+                            </details>
+                            <details className={styles.dataLogDetails}>
+                              <summary className={styles.dataLogSummary}>What AI received</summary>
+                              <pre className={styles.dataLogJson}>{JSON.stringify(tc.sanitizedResult, null, 2)}</pre>
+                            </details>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

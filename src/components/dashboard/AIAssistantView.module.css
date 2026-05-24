@@ -297,6 +297,43 @@
 }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
+/* ── Planning indicator row ───────────────────────────────────────────────── */
+
+.planningRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0 5px 36px;
+  margin: 2px 0;
+}
+
+.planningDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #006b6b55;
+  animation: planningPulse 1.2s ease-in-out infinite;
+}
+.planningDot[data-resolved='true'] {
+  background: #006b6b;
+  animation: none;
+}
+
+@keyframes planningPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50%       { opacity: 1;    transform: scale(1.15); }
+}
+
+.planningText {
+  font-size: 11px;
+  color: #006b6b;
+  letter-spacing: 0.01em;
+}
+.planningText strong {
+  font-weight: 600;
+}
+
 /* ── Tool call row ────────────────────────────────────────────────────────── */
 
 .toolCallRow {
@@ -675,4 +712,245 @@
   overflow-y: auto;
   border: 1px solid #e4e3e0;
   border-radius: 6px;
+}
+
+/* ── Strict mode permBar ─────────────────────────────────────────────────── */
+
+.permBarStrict {
+  background: #f0f4ff;
+  border-bottom-color: #a5b4fc;
+}
+
+.permToggleStrict {
+  background: #6366f1;
+}
+
+.permDivider {
+  width: 1px;
+  height: 16px;
+  background: #d1d0ce;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ── SQL block (strict mode run_sql display) ─────────────────────────────── */
+
+.sqlBlock {
+  margin-top: 6px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  background: #f5f3ff;
+  overflow: hidden;
+}
+
+.sqlCode {
+  display: block;
+  font-size: 11.5px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #3730a3;
+  line-height: 1.6;
+}
+
+.sqlCopyBtn {
+  display: block;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  color: #4f46e5;
+  background: #ede9fe;
+  border: none;
+  border-top: 1px solid #c7d2fe;
+  padding: 5px 12px;
+  cursor: pointer;
+  text-align: right;
+  transition: background 0.12s, color 0.12s;
+}
+.sqlCopyBtn:hover { background: #ddd6fe; color: #3730a3; }
+
+.sqlValidationError {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ── Data log floating button + panel ────────────────────────────────────── */
+
+.dataLogBtnWrap {
+  position: absolute;
+  bottom: 60px;
+  left: 12px;
+  z-index: 20;
+}
+
+.dataLogBtn {
+  font-size: 11px;
+  font-weight: 500;
+  color: #444;
+  background: #fff;
+  border: 1px solid #d1d0ce;
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.dataLogBtn:hover { border-color: #888; box-shadow: 0 3px 12px rgba(0,0,0,0.12); }
+
+.dataLogPanel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 380px;
+  max-height: 480px;
+  background: #fff;
+  border: 1px solid #d1d0ce;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dataLogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #e4e3e0;
+  flex-shrink: 0;
+}
+
+.dataLogTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+}
+
+.dataLogClose {
+  font-size: 16px;
+  line-height: 1;
+  color: #888;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.12s;
+}
+.dataLogClose:hover { color: #222; }
+
+.dataLogBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.dataLogQuery {
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid #f0efed;
+}
+.dataLogQuery:last-child { border-bottom: none; }
+
+.dataLogQueryTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #222;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.dataLogIter {
+  margin-left: 4px;
+}
+
+.dataLogIterLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 6px 0 3px;
+}
+
+.dataLogTool {
+  margin: 4px 0;
+  border: 1px solid #e4e3e0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fafaf9;
+}
+
+.dataLogToolHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 9px;
+  background: #f5f4f2;
+  border-bottom: 1px solid #e4e3e0;
+  gap: 8px;
+}
+
+.dataLogToolName {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+}
+
+.dataLogBadges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dataLogBadge {
+  font-size: 10px;
+  color: #555;
+  background: #ece;
+  background: #e8f4f0;
+  border: 1px solid #b8ddd4;
+  border-radius: 10px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  color: #006b6b;
+}
+
+.dataLogDetails {
+  font-size: 11px;
+}
+
+.dataLogSummary {
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  list-style: none;
+  user-select: none;
+}
+.dataLogSummary::-webkit-details-marker { display: none; }
+.dataLogSummary::before { content: '▶ '; font-size: 9px; color: #aaa; }
+details[open] > .dataLogSummary::before { content: '▼ '; }
+.dataLogSummary:hover { background: #f5f4f2; }
+
+.dataLogJson {
+  margin: 0;
+  padding: 6px 9px;
+  font-size: 10.5px;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+  color: #333;
+  background: #fafaf9;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
 }
