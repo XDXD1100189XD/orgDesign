@@ -4,6 +4,7 @@
  */
 
 export const SENSITIVE_FIELD_PATTERNS: RegExp[] = [
+  // Financial / legal PII
   /salary/i,
   /bonus/i,
   /pension/i,
@@ -28,6 +29,16 @@ export const SENSITIVE_FIELD_PATTERNS: RegExp[] = [
   /\bbase_pay\b/i,
   /\bpay_rate\b/i,
   /\btotal_pay\b/i,
+  // Employee name PII — strip from all tool results; never expose to API
+  /\bname\b/i,       // standalone "name" field (word-boundary safe: won't match department_name)
+  /display_name/i,
+  /full_name/i,
+  /first_name/i,
+  /last_name/i,
+  /\bmanager\b/i,    // resolved manager display_name (not manager_id — underscore breaks word boundary)
+  // Org-vocab labels — strip from tool results; AI looks these up from system context schema
+  /\bactivity_name\b/i,
+  /\bskill_name\b/i,
 ];
 
 const NAME_FIELD_PATTERNS: RegExp[] = [

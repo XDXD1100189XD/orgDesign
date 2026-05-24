@@ -65,6 +65,16 @@ function compressHistory(messages: RawMessage[]): RawMessage[] {
   });
 }
 
+function substituteIdsInText(text: string, map: Map<string, string>): string {
+  let out = text;
+  for (const [id, name] of map) {
+    if (!id) continue;
+    const safe = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`\\b${safe}\\b`, 'g'), name);
+  }
+  return out;
+}
+
 // ── WC weighted scoring helpers ───────────────────────────────────────────────
 
 interface WcSkillRequirement {
@@ -415,7 +425,8 @@ const SUGGESTIONS = [
 // Strips / summarizes tool results before they go into Anthropic tool_result content.
 // Full results are still used for UI display — only what Claude receives is limited.
 
-function sanitizeToolResultForAI(name: string, result: unknown): unknown {
+function sanitizeToolResultForAI(name: string, result: unknown, writeMode = false): unknown {
+  if (writeMode) return result;
   // find_employees: strip all sensitive/PII fields from each employee row
   if (name === 'find_employees') {
     const r = result as { found?: number; employees?: Record<string, unknown>[] };
@@ -634,6 +645,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
   const columnMappingRef    = useRef(columnMapping);
   const chatRestoredRef     = useRef(false);
   const planStoreRef        = useRef<Map<string, ValidatedPlan>>(new Map());
+  const empIdToNameRef      = useRef<Map<string, string>>(new Map());
   const graphVersionRef     = useRef(graphVersion);
   const toBeRowsRef         = useRef(toBeRows ?? null);
   const asIsRowsRef         = useRef(rows);
@@ -691,6 +703,12 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
     alasql(`CREATE TABLE ${AI_TABLE}`);
     alasql.tables[AI_TABLE].data = tableRows.map((r: ExcelRow) => ({ ...r }));
     systemCtxRef.current = buildSystemContext(tableRows, data, writeMode, columnMapping ?? null);
+
+    empIdToNameRef.current = new Map(
+      Object.values(data?.vertices ?? {})
+        .filter(v => v.id && v.display_name && !v.unnamed)
+        .map(v => [v.id!, v.display_name])
+    );
 
     // Restore chat once after the first data load
     if (!chatRestoredRef.current) {
@@ -1640,15 +1658,15 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         );
         if (!entry) return { error: `No employee found matching "${toolInput.employee_name}"` };
         const [startId] = entry;
-        const path: Array<{ name: string; role: string; depth: number }> = [];
+        const path: Array<{ emp_id: string; role: string; depth: number }> = [];
         let current: string | undefined = startId;
         while (current) {
           const v = d.vertices[current];
           if (!v) break;
-          path.unshift({ name: v.display_name, role: v.role ?? '', depth: d.metrics.depth[current] ?? 0 });
+          path.unshift({ emp_id: current, role: v.role ?? '', depth: d.metrics.depth[current] ?? 0 });
           current = d.metrics.parent[current];
         }
-        return { employee: entry[1].display_name, hierarchy_depth: path.length, path };
+        return { employee: entry[0], hierarchy_depth: path.length, path };
       }
 
       if (name === 'compare_states') {
@@ -1828,11 +1846,11 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
       if (name === 'get_comp_bands') {
         const matrix = dataRef.current?.compMatrix;
         if (!matrix) return { bands: [], note: 'No comp matrix defined yet.' };
-        const bands: Array<{ grade: string; geo: string; min: number; max: number; currency: string }> = [];
+        const bands: Array<{ grade: string; geo: string; currency: string }> = [];
         for (const [grade, geoMap] of Object.entries(matrix)) {
           if (!geoMap) continue;
           for (const [geo, band] of Object.entries(geoMap)) {
-            if (band) bands.push({ grade, geo, min: band.min, max: band.max, currency: band.currency });
+            if (band) bands.push({ grade, geo, currency: band.currency });
           }
         }
         return { bands };
@@ -2006,6 +2024,10 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         break;
       }
 
+      if (aText && empIdToNameRef.current.size > 0) {
+        const substituted = substituteIdsInText(aText, empIdToNameRef.current);
+        if (substituted !== aText) { patch(aId, substituted); finalAnswerText = substituted; }
+      }
       finalize(aId);
       if (!fullMessage) break;
       current = [...current, fullMessage];
@@ -2019,7 +2041,7 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         setDisplayMsgs(prev => [...prev, { id: uid(), kind: 'tool_call', name: tc.name, sql }]);
 
         const result    = await executeTool(tc.name, tc.input);
-        const aiResult  = sanitizeToolResultForAI(tc.name, result);
+        const aiResult  = sanitizeToolResultForAI(tc.name, result, writeModeRef.current);
         const resultStr = JSON.stringify(aiResult);
 
         if (currentQueryLogRef.current) {
