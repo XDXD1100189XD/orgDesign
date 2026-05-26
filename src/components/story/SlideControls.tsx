@@ -101,19 +101,17 @@ export function SlideControls({ slide, onUpdateSlide }: Props) {
         </div>
       )}
 
-      {/* Footer — slot templates */}
-      {slide.template !== 'title' && (
-        <div>
-          <label style={labelStyle}>Footer text</label>
-          <input
-            type="text"
-            value={slide.footer ?? ''}
-            onChange={e => setFooter(e.target.value)}
-            placeholder="Source: HR Database · Q2 2026"
-            style={inputStyle}
-          />
-        </div>
-      )}
+      {/* Footer */}
+      <div>
+        <label style={labelStyle}>Footer text</label>
+        <input
+          type="text"
+          value={slide.footer ?? ''}
+          onChange={e => setFooter(e.target.value)}
+          placeholder="Source: HR Database · Q2 2026"
+          style={inputStyle}
+        />
+      </div>
 
       {/* Slot status */}
       {slide.template !== 'title' && (

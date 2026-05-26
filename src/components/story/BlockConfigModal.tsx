@@ -14,7 +14,7 @@ interface Props {
   onDismiss: () => void;
 }
 
-type Mode = 'table' | 'chart';
+type Mode = 'table' | 'pivotTable' | 'chart';
 
 export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
   const chartability = useMemo(
@@ -29,8 +29,9 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
   // Table config
   const [selectedCols, setSelectedCols] = useState<string[]>(data.columns);
   const [rowLimit, setRowLimit] = useState(10);
+  const [excludedRowIndices, setExcludedRowIndices] = useState<Set<number>>(new Set());
 
-  // Chart config
+  // Chart / pivotTable config
   const [chartType, setChartType] = useState<ChartType>(
     chartability.suggestedTypes[0] ?? 'bar',
   );
@@ -40,34 +41,51 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
   const [yField, setYField] = useState<string>(
     data.pivotConfig?.valueField ?? chartability.recommendedValueField ?? '',
   );
+  const [colField, setColField] = useState<string>('');
   const [aggFn, setAggFn] = useState<AggFn>(
     data.pivotConfig?.aggFn ?? chartability.recommendedAggFn ?? 'count',
   );
 
-  // Live chart preview
+  // Rows filtered by selection (table mode only)
+  const filteredRows = useMemo(
+    () => data.rows.filter((_, i) => !excludedRowIndices.has(i)),
+    [data.rows, excludedRowIndices],
+  );
+
+  // Live chart/pivot preview
   const pivotConfig: PivotConfig = useMemo(() => ({
     rowField: xField || null,
-    colField: null,
+    colField: colField || null,
     valueField: yField || null,
     aggFn,
     chartType,
     palette: CHART_COLORS,
-  }), [xField, yField, aggFn, chartType]);
+  }), [xField, colField, yField, aggFn, chartType]);
 
   const pivotData = useMemo(() => {
-    if (data.pivotData && mode === 'chart' &&
+    if (data.pivotData && excludedRowIndices.size === 0 &&
+        mode !== 'pivotTable' &&
         xField === (data.pivotConfig?.rowField ?? '') &&
         yField === (data.pivotConfig?.valueField ?? '')) {
-      // Use pre-computed pivotData from Analytics Studio
       return data.pivotData;
     }
-    return computePivot(data.rows as Parameters<typeof computePivot>[0], pivotConfig);
-  }, [data.rows, data.pivotData, data.pivotConfig, pivotConfig, mode, xField, yField]);
+    const sourceRows = mode === 'table' ? filteredRows : data.rows;
+    return computePivot(sourceRows as Parameters<typeof computePivot>[0], pivotConfig);
+  }, [data.rows, data.pivotData, data.pivotConfig, pivotConfig, mode, xField, yField, excludedRowIndices, filteredRows]);
 
   function toggleCol(col: string) {
     setSelectedCols(prev =>
       prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col],
     );
+  }
+
+  function toggleRow(idx: number) {
+    setExcludedRowIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
   }
 
   function handleConfirm() {
@@ -79,8 +97,24 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
         id: crypto.randomUUID(),
         title: blockTitle || undefined,
         columns: selectedCols.length ? selectedCols : data.columns,
-        rows: data.rows,
+        rows: filteredRows,
         maxDisplayRows: rowLimit,
+        source: data.source,
+      };
+      onConfirm(block);
+    } else if (mode === 'pivotTable') {
+      const cols = [xField, ...pivotData.colKeys];
+      const rows = pivotData.rows.map(r => ({
+        [xField]: r.rowKey,
+        ...Object.fromEntries(pivotData.colKeys.map(ck => [ck, r.values[ck] ?? 0])),
+      }));
+      const block: TableBlock = {
+        type: 'table',
+        id: crypto.randomUUID(),
+        title: blockTitle || undefined,
+        columns: cols,
+        rows,
+        maxDisplayRows: rows.length,
         source: data.source,
       };
       onConfirm(block);
@@ -91,6 +125,7 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
         title: blockTitle || undefined,
         spec: {
           rowField: xField,
+          colField: colField || undefined,
           valueField: yField || undefined,
           aggFn,
           chartType,
@@ -108,6 +143,9 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
   }
 
   const allCols = data.columns;
+  // Rows shown in selection list (all, up to 50)
+  const rowSelectionList = data.rows.slice(0, 50);
+  const allSelected = excludedRowIndices.size === 0;
 
   return (
     <div
@@ -159,19 +197,18 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
             <div>
               <div style={labelStyle}>Display as</div>
               <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(0,0,0,0.15)', borderRadius: 3, overflow: 'hidden' }}>
-                {(['table', 'chart'] as Mode[]).map(m => (
+                {(['table', 'pivotTable', 'chart'] as Mode[]).map(m => (
                   <button
                     key={m}
                     onClick={() => setMode(m)}
                     style={{
-                      flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                      flex: 1, padding: '6px 0', fontSize: 11, fontWeight: 600,
                       border: 'none', cursor: 'pointer',
                       background: mode === m ? 'var(--teal, #006b6b)' : '#fff',
                       color: mode === m ? '#fff' : '#666',
-                      textTransform: 'capitalize',
                     }}
                   >
-                    {m === 'table' ? '⊞ Table' : '▦ Chart'}
+                    {m === 'table' ? '⊞ Table' : m === 'pivotTable' ? '⊟ Pivot' : '▦ Chart'}
                   </button>
                 ))}
               </div>
@@ -194,7 +231,7 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                 {/* Column selection */}
                 <div>
                   <label style={labelStyle}>Columns to show</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 200, overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
                     {allCols.map(col => (
                       <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer', padding: '2px 0' }}>
                         <input
@@ -209,9 +246,42 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                   </div>
                 </div>
 
+                {/* Row selection */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                    <label style={{ ...labelStyle, marginBottom: 0 }}>
+                      Select rows {excludedRowIndices.size > 0 && <span style={{ color: 'var(--teal,#006b6b)', fontWeight: 700 }}>({data.rows.length - excludedRowIndices.size}/{data.rows.length})</span>}
+                    </label>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => setExcludedRowIndices(new Set())} style={miniBtn}>All</button>
+                      <button onClick={() => setExcludedRowIndices(new Set(data.rows.map((_, i) => i)))} style={miniBtn}>None</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto', border: '1px solid rgba(0,0,0,0.09)', borderRadius: 3, padding: '4px 6px' }}>
+                    {rowSelectionList.map((row, i) => (
+                      <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer', padding: '1px 0' }}>
+                        <input
+                          type="checkbox"
+                          checked={!excludedRowIndices.has(i)}
+                          onChange={() => toggleRow(i)}
+                          style={{ accentColor: 'var(--teal, #006b6b)' }}
+                        />
+                        <span style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {String(row[allCols[0]] ?? `Row ${i + 1}`)}
+                        </span>
+                      </label>
+                    ))}
+                    {data.rows.length > 50 && (
+                      <div style={{ fontSize: 9, color: '#aaa', padding: '3px 2px', fontStyle: 'italic' }}>
+                        Showing first 50 rows
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Row limit */}
                 <div>
-                  <label style={labelStyle}>Max rows</label>
+                  <label style={labelStyle}>Max rows to show</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
                       type="range" min={1} max={50} value={rowLimit}
@@ -224,20 +294,29 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
               </>
             )}
 
-            {mode === 'chart' && (
+            {(mode === 'chart' || mode === 'pivotTable') && (
               <>
-                {/* X axis */}
+                {/* X axis / Group by */}
                 <div>
-                  <label style={labelStyle}>X axis (group by)</label>
+                  <label style={labelStyle}>{mode === 'pivotTable' ? 'Group by (rows)' : 'X axis (group by)'}</label>
                   <select value={xField} onChange={e => setXField(e.target.value)} style={inputStyle}>
                     <option value="">— select —</option>
                     {allCols.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
 
+                {/* Color by / column dimension */}
+                <div>
+                  <label style={labelStyle}>Color by / break down (optional)</label>
+                  <select value={colField} onChange={e => setColField(e.target.value)} style={inputStyle}>
+                    <option value="">— none —</option>
+                    {allCols.filter(c => c !== xField).map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
                 {/* Y axis */}
                 <div>
-                  <label style={labelStyle}>Y axis (value)</label>
+                  <label style={labelStyle}>{mode === 'pivotTable' ? 'Value' : 'Y axis (value)'}</label>
                   <select value={yField} onChange={e => setYField(e.target.value)} style={inputStyle}>
                     <option value="">Count rows</option>
                     {chartability.numericColumns.map(c => <option key={c} value={c}>{c}</option>)}
@@ -258,32 +337,33 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                   </div>
                 )}
 
-                {/* Chart type */}
-                <div>
-                  <label style={labelStyle}>Chart type</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {(['bar', 'line', 'area', 'pie'] as ChartType[]).map(ct => (
-                      <button
-                        key={ct}
-                        onClick={() => setChartType(ct)}
-                        style={{
-                          padding: '4px 10px', fontSize: 11, borderRadius: 3, cursor: 'pointer',
-                          border: '1px solid',
-                          borderColor: chartType === ct ? 'var(--teal, #006b6b)' : 'rgba(0,0,0,0.15)',
-                          background: chartType === ct ? 'rgba(0,107,107,0.08)' : '#fff',
-                          color: chartType === ct ? 'var(--teal, #006b6b)' : '#555',
-                          fontWeight: chartType === ct ? 600 : 400,
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {ct}
-                      </button>
-                    ))}
+                {/* Chart type — chart mode only */}
+                {mode === 'chart' && (
+                  <div>
+                    <label style={labelStyle}>Chart type</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {(['bar', 'stackedBar', 'line', 'area', 'pie'] as ChartType[]).map(ct => (
+                        <button
+                          key={ct}
+                          onClick={() => setChartType(ct)}
+                          style={{
+                            padding: '4px 10px', fontSize: 11, borderRadius: 3, cursor: 'pointer',
+                            border: '1px solid',
+                            borderColor: chartType === ct ? 'var(--teal, #006b6b)' : 'rgba(0,0,0,0.15)',
+                            background: chartType === ct ? 'rgba(0,107,107,0.08)' : '#fff',
+                            color: chartType === ct ? 'var(--teal, #006b6b)' : '#555',
+                            fontWeight: chartType === ct ? 600 : 400,
+                          }}
+                        >
+                          {ct === 'stackedBar' ? 'Stacked' : ct.charAt(0).toUpperCase() + ct.slice(1)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Chartability warnings */}
-                {chartability.warnings.length > 0 && (
+                {mode === 'chart' && chartability.warnings.length > 0 && (
                   <div style={{ fontSize: 10, color: '#b05500', background: 'rgba(176,85,0,0.06)', borderRadius: 3, padding: '6px 8px', lineHeight: 1.5 }}>
                     {chartability.warnings[0]}
                   </div>
@@ -313,7 +393,7 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.rows.slice(0, rowLimit).map((row, i) => (
+                    {filteredRows.slice(0, rowLimit).map((row, i) => (
                       <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : 'rgba(0,107,107,0.03)' }}>
                         {(selectedCols.length ? selectedCols : allCols).map(col => (
                           <td key={col} style={{ padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.05)', color: '#333' }}>
@@ -324,9 +404,59 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                     ))}
                   </tbody>
                 </table>
-                {data.rows.length > rowLimit && (
+                {filteredRows.length > rowLimit && (
                   <div style={{ fontSize: 10, color: '#aaa', padding: '6px 8px', fontStyle: 'italic' }}>
-                    Showing {rowLimit} of {data.rows.length} rows
+                    Showing {rowLimit} of {filteredRows.length} selected rows
+                  </div>
+                )}
+                {!allSelected && (
+                  <div style={{ fontSize: 10, color: 'var(--teal,#006b6b)', padding: '4px 8px' }}>
+                    {excludedRowIndices.size} row{excludedRowIndices.size !== 1 ? 's' : ''} excluded
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mode === 'pivotTable' && (
+              <div style={{ overflow: 'auto', flex: 1 }}>
+                {xField ? (
+                  pivotData.rows.length > 0 ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '5px 8px', background: 'var(--teal,#006b6b)', color: '#fff', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>
+                            {xField}
+                          </th>
+                          {pivotData.colKeys.map(ck => (
+                            <th key={ck} style={{ textAlign: 'right', padding: '5px 8px', background: 'var(--teal,#006b6b)', color: '#fff', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>
+                              {ck === 'value' ? (yField || 'Count') : ck}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pivotData.rows.map((r, i) => (
+                          <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : 'rgba(0,107,107,0.03)' }}>
+                            <td style={{ padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.05)', color: '#333', fontWeight: 500 }}>
+                              {r.rowKey}
+                            </td>
+                            {pivotData.colKeys.map(ck => (
+                              <td key={ck} style={{ padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.05)', color: '#555', textAlign: 'right' }}>
+                                {r.values[ck] != null ? Number(r.values[ck]).toLocaleString() : '—'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 150, color: '#aaa', fontSize: 12 }}>
+                      No data to aggregate
+                    </div>
+                  )
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 150, color: '#aaa', fontSize: 12 }}>
+                    Select a Group by field to preview
                   </div>
                 )}
               </div>
@@ -387,4 +517,10 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.15)', borderRadius: 3,
   background: '#fff', color: 'var(--ink, #1a1d20)',
   boxSizing: 'border-box', outline: 'none',
+};
+
+const miniBtn: React.CSSProperties = {
+  fontSize: 9, fontWeight: 600, padding: '2px 7px',
+  border: '1px solid rgba(0,0,0,0.18)', borderRadius: 2,
+  background: '#fff', cursor: 'pointer', color: '#555',
 };

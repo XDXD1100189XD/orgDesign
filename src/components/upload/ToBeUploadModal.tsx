@@ -34,7 +34,6 @@ export default function ToBeUploadModal({ asIsHeaders, asIsMapping, asIsData, on
     setHardErrors([]);
     setSoftWarnings([]);
     setProceedDespiteWarnings(false);
-    if (f.size > 20 * 1024 * 1024) { setError('File is larger than 20 MB.'); return; }
     setFile(f);
   }, []);
 
@@ -198,7 +197,7 @@ export default function ToBeUploadModal({ asIsHeaders, asIsMapping, asIsData, on
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <div className={styles.dzTitle}>Drop your Excel file here</div>
-            <div className={styles.dzSub}>XLSX · XLS · CSV · up to 20 MB</div>
+            <div className={styles.dzSub}>XLSX · XLS · CSV</div>
             <input
               ref={inputRef}
               type="file"

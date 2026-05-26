@@ -326,13 +326,13 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'set_field_mapping',
     description:
-      'Maps an unmapped canonical org field (e.g. "Job Family") to an existing column OR derives it via SQL and writes it as a new column. Rebuilds the org hierarchy with the new mapping. ONLY in Write Mode. Call get_column_values first to understand available data. For derived_sql: SELECT must return two columns aliased exactly as `employee_id` and `value`.',
+      'Maps an unmapped canonical org field (e.g. "Job Family") to an existing column OR derives it via SQL and writes it as a new column. Rebuilds the org hierarchy with the new mapping. ONLY in Write Mode. Call get_column_values first to understand available data. For derived_sql: SELECT must return two columns aliased exactly as `employee_id` and `field_value`.',
     input_schema: {
       type: 'object' as const,
       properties: {
         field:           { type: 'string', description: 'Canonical field to map: e.g. "Job Family", "Job Sub Family", "Management Level", "Compensation Grade", "Department Name", "Location", "Country", "Region", "Division", "Sub-Division", "Worker Type", "FTE", "Annual Compensation", "Annual Rate", "Position Status", "Squad", "Days Open"' },
         source_column:   { type: 'string', description: 'Existing column name to map to this field (use this OR derived_sql, not both)' },
-        derived_sql:     { type: 'string', description: "SQL returning two aliased columns: `employee_id` (the employee's ID) and `value` (the derived field value). E.g.: SELECT `Emp ID` AS employee_id, CASE WHEN `Dept` LIKE '%Eng%' THEN 'Engineering' ELSE 'Other' END AS value FROM data" },
+        derived_sql:     { type: 'string', description: "SQL returning two aliased columns: `employee_id` (the employee's ID) and `field_value` (the derived field value). E.g.: SELECT `Emp ID` AS employee_id, CASE WHEN `Dept` LIKE '%Eng%' THEN 'Engineering' ELSE 'Other' END AS field_value FROM data" },
         new_column_name: { type: 'string', description: 'Column name for the derived values written back to the data (required when using derived_sql)' },
         rationale:       { type: 'string', description: 'Why this mapping is appropriate' },
       },
@@ -374,7 +374,7 @@ const TOOLS: Anthropic.Tool[] = [
               node_id:       { type: 'string', description: 'Employee ID of the target node (from find_employees)' },
               new_parent_id: { type: 'string', description: 'reparent: employee ID of new manager' },
               parent_id:     { type: 'string', description: 'create: employee ID of parent node' },
-              reassign_to:   { type: 'string', description: 'delete: employee ID to reassign orphaned direct children (null = leave as roots)' },
+              reassign_to:   { type: 'string', description: 'delete: employee ID to reassign orphaned direct children. Omit or null to automatically reassign to the deleted node\'s own parent.' },
               set_to:        { type: 'string', enum: ['open', 'filled'], description: 'toggle_open only' },
               fields:        { type: 'object', description: 'create/update: keys must be exact Excel column names (call get_schema if unsure)' },
               reason:        { type: 'string', description: 'Why this action is being taken' },

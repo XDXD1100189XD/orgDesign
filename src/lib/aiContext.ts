@@ -108,7 +108,7 @@ export function buildSystemContext(
 
   // Write mode block
   const writeModeBlock = writeMode
-    ? `\n## Write mode: ENABLED\nAvailable write tools:\n- \`set_comp_bands\`: create/update comp matrix bands. Call \`run_sql\` first to analyze salary distributions.\n- \`write_employees\`: persist row mutations (INSERT/UPDATE/DELETE) to the org hierarchy. Always preview with \`run_sql SELECT\` first. Specify \`target\`: "as-is", "to-be", or "both".\n- \`set_field_mapping\`: map an unmapped canonical field to an existing column (\`source_column\`) or derive it via SQL (\`derived_sql\` returning \`employee_id\` + \`value\` columns, plus \`new_column_name\`). Always call \`get_column_values\` first.\nAll write operations show a confirmation dialog before applying.`
+    ? `\n## Write mode: ENABLED\nAvailable write tools:\n- \`set_comp_bands\`: create/update comp matrix bands. Call \`run_sql\` first to analyze salary distributions.\n- \`write_employees\`: persist row mutations (INSERT/UPDATE/DELETE) to the org hierarchy. Always preview with \`run_sql SELECT\` first. Specify \`target\`: "as-is", "to-be", or "both".\n- \`set_field_mapping\`: map an unmapped canonical field to an existing column (\`source_column\`) or derive it via SQL (\`derived_sql\` returning \`employee_id\` + \`field_value\` columns — note: \`value\` is a reserved word in AlaSQL, always alias as \`field_value\`; plus \`new_column_name\`). Also use this to **add any new computed column** — do NOT use \`write_employees\` UPDATE for adding new columns (AlaSQL UPDATE cannot create new columns). Always call \`get_column_values\` first.\nAll write operations show a confirmation dialog before applying.`
     : `\n## Write mode: DISABLED\nWrite tools (\`set_comp_bands\`, \`write_employees\`, \`set_field_mapping\`) are defined but disabled. Tell the user to enable Write Mode using the toggle above the chat.`;
 
   // 2 representative sample rows — sensitive fields and names stripped before sending to Claude
@@ -181,6 +181,7 @@ Never continue tool loops without discovering materially new information. If a t
 
 ## CLARIFICATION RULES
 If the user request is ambiguous, broad, or undefined — ASK A CLARIFYING QUESTION FIRST before beginning any tool loop. Examples of vague prompts requiring clarification: "analyze the org" · "show risks" · "tell me insights".
+If the user's message is a short confirmation or negation (e.g. "yes", "no", "ok", "sure", "go ahead", "proceed", "cancel", "do it", "confirm", "done", or a single word/emoji), treat it as a direct response to your IMMEDIATELY PRECEDING message. Do NOT ask for clarification — re-read your last message in the conversation history and act on it accordingly.
 
 ## TERMINATION RULE
 The moment sufficient evidence exists to answer: STOP TOOL USAGE AND RESPOND. Do not gather extra context unless explicitly requested.
@@ -246,6 +247,7 @@ ${omittedFields.length ? `Omitted sensitive fields (available client-side only):
 - The org employee table is always named \`ai_employees\` — NEVER use \`data\` as a table name in read queries
 - Prefer LIMIT 20 on exploratory queries
 - SQL engine is AlaSQL — supports SELECT/FROM/WHERE/GROUP BY/ORDER BY/HAVING/JOIN/LIMIT/LIKE/IS NULL
+- **AlaSQL reserved words that cannot be used as column aliases:** \`VALUE\`, \`VALUES\`, \`KEY\`, \`DATE\` — use \`field_value\`, \`row_count\`, etc. instead
 - For UPDATE/INSERT/DELETE: call \`run_sql\` as normal — the user will see a confirmation dialog before execution
 - **If \`run_sql\` returns \`{ "ok": false, "error": "..." }\`**: immediately fix and retry with a corrected query — do NOT give up after one failure
 

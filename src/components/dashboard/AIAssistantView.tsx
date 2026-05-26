@@ -1808,8 +1808,8 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
           const sql = derivedSql!
             .replace(/\bFROM\s+data\b/gi, `FROM ${AI_TABLE}`)
             .replace(/\bJOIN\s+data\b/gi,  `JOIN ${AI_TABLE}`);
-          const result = alasql(sql) as Array<{ employee_id: string | number; value: unknown }>;
-          const valMap = new Map(result.map(r => [String(r.employee_id), r.value]));
+          const result = alasql(sql) as Array<{ employee_id: string | number; field_value: unknown }>;
+          const valMap = new Map(result.map(r => [String(r.employee_id), r.field_value]));
 
           const currentRows: ExcelRow[] = alasql.tables[AI_TABLE]?.data ?? [];
           const empIdCol = columnMappingRef.current?.['Employee ID']?.column;

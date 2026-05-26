@@ -1497,6 +1497,55 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
     [deletingId, V, m.children, dataEdges, data, pushState, activeSearchResultId, canSyncRows, columnMapping, rows, publishRows],
   );
 
+  // Bulk delete (tray multi-select) — children auto-reparent to deleted node's parent
+  const doMultiDel = useCallback(() => {
+    const rootSet = new Set(m.basic.roots);
+    const idsToDelete = new Set([...selectedNodeIds].filter((id) => !!V[id] && !rootSet.has(id)));
+    if (idsToDelete.size === 0) return;
+
+    const getEffectiveParent = (id: string): string | null => {
+      let p: string | null = m.parent[id] ?? null;
+      while (p && idsToDelete.has(p)) p = m.parent[p] ?? null;
+      return p;
+    };
+
+    if (canSyncRows && columnMapping && rows) {
+      let currentRows = rows;
+      for (const id of idsToDelete) {
+        const ep = getEffectiveParent(id);
+        const deletedEmpId = V[id]?.id;
+        if (!deletedEmpId) continue;
+        const targetEmpId = ep ? (V[ep]?.id || "") : "";
+        const childEmpIds = (m.children[id] || [])
+          .map((cId) => V[cId]?.id)
+          .filter((eId): eId is string => !!eId);
+        currentRows = deletePositionRowsWithReassignment(currentRows, columnMapping, deletedEmpId, childEmpIds, targetEmpId);
+      }
+      publishRows(currentRows, "delete", `Removed ${idsToDelete.size} position${idsToDelete.size === 1 ? "" : "s"}`, idsToDelete.size);
+    } else {
+      let nVerts = { ...V };
+      let nEdges = [...dataEdges];
+      for (const id of idsToDelete) {
+        const ep = getEffectiveParent(id);
+        delete nVerts[id];
+        nEdges = nEdges.filter((e) => e.employee_temp_id !== id);
+        if (ep) {
+          nEdges = nEdges.map((e) => e.manager_temp_id === id ? { ...e, manager_temp_id: ep } : e);
+        } else {
+          nEdges = nEdges.filter((e) => e.manager_temp_id !== id);
+        }
+      }
+      pushState({ ...data, vertices: nVerts, edges: nEdges, metrics: computeMetrics(nEdges) });
+    }
+
+    setSelectedNodeId(null);
+    setSelectedNodeIds(new Set());
+    if (activeSearchResultId && idsToDelete.has(activeSearchResultId)) {
+      setActiveSearchResultId(null);
+      setHighlightedPathIds(new Set());
+    }
+  }, [selectedNodeIds, m, V, dataEdges, data, pushState, activeSearchResultId, canSyncRows, columnMapping, rows, publishRows]);
+
   // Edit save
   const doEditSave = useCallback(
     (newData: DashboardData) => {
@@ -1907,6 +1956,13 @@ function Inner({ data, onDataChange, columnMapping, rows, onRowsChange, stateKey
             </button>
             <button className={styles.fitBtn} disabled={!canTransferSelection} onClick={() => setTransferring(true)}>
               Transfer selected
+            </button>
+            <button
+              className={styles.fitBtn}
+              disabled={!selectedPositions.some((id) => !m.basic.roots.includes(id))}
+              onClick={doMultiDel}
+            >
+              Delete selected
             </button>
           </div>
         </aside>

@@ -74,9 +74,6 @@ function validateAction(
     case 'delete': {
       if (!rowByEmpId.has(action.node_id))
         return { ok: false, error: `node_id "${action.node_id}" not found`, suggestion: 'Use find_employees to get the exact employee ID.' };
-      const directChildren = sim.filter(r => String(r[mgrIdCol] ?? '').trim() === action.node_id);
-      if (directChildren.length > 0 && !action.reassign_to)
-        return { ok: false, error: `Node "${action.node_id}" has ${directChildren.length} direct report(s). Specify reassign_to to reassign them.`, suggestion: `Add reassign_to with the manager ID to receive the ${directChildren.length} direct report(s).` };
       if (action.reassign_to && !rowByEmpId.has(action.reassign_to))
         return { ok: false, error: `reassign_to "${action.reassign_to}" not found`, suggestion: 'Use find_employees to verify the reassignment target.' };
       return { ok: true };
@@ -148,12 +145,13 @@ function applyActionToRows(
     case 'delete': {
       const rowIdx = rowByEmpId.get(action.node_id)!;
       const nodeName = getName(sim, rowIdx, nameCol);
+      const nodeParentId = String(sim[rowIdx][mgrIdCol] ?? '').trim() || null;
       // Reassign direct children only (not all descendants)
       const directChildIndices: number[] = [];
       sim.forEach((r, i) => {
         if (String(r[mgrIdCol] ?? '').trim() === action.node_id) directChildIndices.push(i);
       });
-      const reassignTo = action.reassign_to ?? null;
+      const reassignTo = action.reassign_to ?? nodeParentId;
       for (const ci of directChildIndices) {
         sim[ci] = { ...sim[ci], [mgrIdCol]: reassignTo ?? '' };
       }

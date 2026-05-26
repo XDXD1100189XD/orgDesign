@@ -44,10 +44,6 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed, o
 
   const handleFile = useCallback((f: File) => {
     setError(null);
-    if (f.size > 20 * 1024 * 1024) {
-      setError('File is larger than 20 MB.');
-      return;
-    }
     setFile(f);
     if (f.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -293,7 +289,7 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed, o
                   <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
                 <div className={styles.dzTitle}>Drop your {config.label.toLowerCase()} file here</div>
-                <div className={styles.dzSub}>{config.description} · up to 20 MB</div>
+                <div className={styles.dzSub}>{config.description}</div>
                 <input
                   ref={inputRef}
                   type="file"

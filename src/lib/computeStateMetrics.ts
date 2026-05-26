@@ -34,7 +34,7 @@ export function computeStateMetrics(d: DashboardData, compMatrix?: CompMatrix | 
       }
       if (band) { cost += (band.min + band.max) / 2; hasAny = true; }
     }
-    if (hasAny && missingCompBands.length === 0) totalCost = cost;
+    if (hasAny) totalCost = cost;
   }
 
   return {

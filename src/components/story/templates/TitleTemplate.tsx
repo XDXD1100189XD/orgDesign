@@ -55,6 +55,16 @@ export function TitleTemplate({ slide }: { slide: StorySlide }) {
       }}>
         Confidential
       </div>
+      {slide.footer && (
+        <div style={{
+          position: 'absolute', bottom: 14, left: 32,
+          fontSize: 10,
+          color: 'rgba(255,255,255,0.5)',
+          letterSpacing: '0.04em',
+        }}>
+          {slide.footer}
+        </div>
+      )}
     </div>
   );
 }

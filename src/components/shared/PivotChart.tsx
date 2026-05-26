@@ -14,17 +14,18 @@ import type { PivotConfig, PivotData } from '@/lib/story/pivotUtils';
 const tickFmt = (v: number | string) => fmtNum(Number(v));
 const tooltipFmt = (v: unknown) => typeof v === 'number' ? fmtNum(v) : String(v ?? '');
 
-export function PivotChart({ pivotData, config, mini = false }: {
+export function PivotChart({ pivotData, config, mini = false, height }: {
   pivotData: PivotData;
   config: PivotConfig;
   mini?: boolean;
+  height?: number;
 }) {
   const chartData = pivotToChartData(pivotData);
   const { colKeys } = pivotData;
   const { chartType, valueField } = config;
   const palette = config.palette.length ? config.palette : CHART_COLORS;
   const clr = (i: number) => palette[i % palette.length];
-  const h = mini ? 100 : 320;
+  const h = mini ? 100 : (height ?? 320);
   const margin = mini
     ? { top: 2, right: 2, left: 2, bottom: 2 }
     : { top: 10, right: 20, left: 10, bottom: 64 };
