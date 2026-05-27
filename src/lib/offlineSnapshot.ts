@@ -95,12 +95,13 @@ function requireObject(value: unknown, label: string): Record<string, unknown> {
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
+  const CHUNK = 0x8000; // 32 KB — avoids max-string-length error on large payloads
   let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  if (typeof btoa === "function") return btoa(binary);
-  return Buffer.from(bytes).toString("base64");
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(binary);
 }
 
 function base64ToBytes(value: string): Uint8Array {
