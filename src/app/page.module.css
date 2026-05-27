@@ -2025,6 +2025,7 @@
   border-radius: 6px;
   background: var(--white);
   padding: 14px 16px;
+  margin-top: 12px;
 }
 
 .workCapabilityVisualCard > strong {

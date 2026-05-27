@@ -5,6 +5,13 @@ import type { PendingData, ChartBlock, TableBlock } from '@/lib/story/types';
 import { validateChartability } from '@/lib/story/chartability';
 import { computePivot, CHART_COLORS } from '@/lib/story/pivotUtils';
 import type { PivotConfig } from '@/lib/story/pivotUtils';
+
+const PALETTES: { name: string; label: string; colors: string[] }[] = [
+  { name: 'default', label: 'Default', colors: CHART_COLORS },
+  { name: 'ocean',   label: 'Ocean',   colors: ['#1a73e8','#00bcd4','#4db6ac','#0288d1','#26a69a','#42a5f5'] },
+  { name: 'warm',    label: 'Warm',    colors: ['#e53935','#f4511e','#fb8c00','#fdd835','#e91e63','#d81b60'] },
+  { name: 'earth',   label: 'Earth',   colors: ['#558b2f','#6d4c41','#5d4037','#33691e','#827717','#4e342e'] },
+];
 import { PivotChart } from '@/components/shared/PivotChart';
 import type { ChartType, AggFn } from '@/lib/types';
 
@@ -45,8 +52,11 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
   const [aggFn, setAggFn] = useState<AggFn>(
     data.pivotConfig?.aggFn ?? chartability.recommendedAggFn ?? 'count',
   );
+  const [paletteName, setPaletteName] = useState<string>('default');
 
-  // Rows filtered by selection (table mode only)
+  const palette = PALETTES.find(p => p.name === paletteName)?.colors ?? CHART_COLORS;
+
+  // Rows filtered by selection
   const filteredRows = useMemo(
     () => data.rows.filter((_, i) => !excludedRowIndices.has(i)),
     [data.rows, excludedRowIndices],
@@ -59,8 +69,8 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
     valueField: yField || null,
     aggFn,
     chartType,
-    palette: CHART_COLORS,
-  }), [xField, colField, yField, aggFn, chartType]);
+    palette,
+  }), [xField, colField, yField, aggFn, chartType, palette]);
 
   const pivotData = useMemo(() => {
     if (data.pivotData && excludedRowIndices.size === 0 &&
@@ -69,7 +79,7 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
         yField === (data.pivotConfig?.valueField ?? '')) {
       return data.pivotData;
     }
-    const sourceRows = mode === 'table' ? filteredRows : data.rows;
+    const sourceRows = filteredRows;
     return computePivot(sourceRows as Parameters<typeof computePivot>[0], pivotConfig);
   }, [data.rows, data.pivotData, data.pivotConfig, pivotConfig, mode, xField, yField, excludedRowIndices, filteredRows]);
 
@@ -130,6 +140,7 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
           aggFn,
           chartType,
           sqlQuery: data.source.label,
+          palette,
         },
         snapshot: {
           rows: data.rows,
@@ -226,6 +237,39 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
               />
             </div>
 
+            {/* Row selection — all modes */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                  Select rows {excludedRowIndices.size > 0 && <span style={{ color: 'var(--teal,#006b6b)', fontWeight: 700 }}>({data.rows.length - excludedRowIndices.size}/{data.rows.length})</span>}
+                </label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => setExcludedRowIndices(new Set())} style={miniBtn}>All</button>
+                  <button onClick={() => setExcludedRowIndices(new Set(data.rows.map((_, i) => i)))} style={miniBtn}>None</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto', border: '1px solid rgba(0,0,0,0.09)', borderRadius: 3, padding: '4px 6px' }}>
+                {rowSelectionList.map((row, i) => (
+                  <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer', padding: '1px 0' }}>
+                    <input
+                      type="checkbox"
+                      checked={!excludedRowIndices.has(i)}
+                      onChange={() => toggleRow(i)}
+                      style={{ accentColor: 'var(--teal, #006b6b)' }}
+                    />
+                    <span style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {String(row[allCols[0]] ?? `Row ${i + 1}`)}
+                    </span>
+                  </label>
+                ))}
+                {data.rows.length > 50 && (
+                  <div style={{ fontSize: 9, color: '#aaa', padding: '3px 2px', fontStyle: 'italic' }}>
+                    Showing first 50 rows
+                  </div>
+                )}
+              </div>
+            </div>
+
             {mode === 'table' && (
               <>
                 {/* Column selection */}
@@ -243,39 +287,6 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                         <span style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col}</span>
                       </label>
                     ))}
-                  </div>
-                </div>
-
-                {/* Row selection */}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                    <label style={{ ...labelStyle, marginBottom: 0 }}>
-                      Select rows {excludedRowIndices.size > 0 && <span style={{ color: 'var(--teal,#006b6b)', fontWeight: 700 }}>({data.rows.length - excludedRowIndices.size}/{data.rows.length})</span>}
-                    </label>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => setExcludedRowIndices(new Set())} style={miniBtn}>All</button>
-                      <button onClick={() => setExcludedRowIndices(new Set(data.rows.map((_, i) => i)))} style={miniBtn}>None</button>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto', border: '1px solid rgba(0,0,0,0.09)', borderRadius: 3, padding: '4px 6px' }}>
-                    {rowSelectionList.map((row, i) => (
-                      <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer', padding: '1px 0' }}>
-                        <input
-                          type="checkbox"
-                          checked={!excludedRowIndices.has(i)}
-                          onChange={() => toggleRow(i)}
-                          style={{ accentColor: 'var(--teal, #006b6b)' }}
-                        />
-                        <span style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {String(row[allCols[0]] ?? `Row ${i + 1}`)}
-                        </span>
-                      </label>
-                    ))}
-                    {data.rows.length > 50 && (
-                      <div style={{ fontSize: 9, color: '#aaa', padding: '3px 2px', fontStyle: 'italic' }}>
-                        Showing first 50 rows
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -356,6 +367,35 @@ export function BlockConfigModal({ data, onConfirm, onDismiss }: Props) {
                           }}
                         >
                           {ct === 'stackedBar' ? 'Stacked' : ct.charAt(0).toUpperCase() + ct.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Color palette */}
+                {mode === 'chart' && (
+                  <div>
+                    <label style={labelStyle}>Color palette</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {PALETTES.map(p => (
+                        <button
+                          key={p.name}
+                          onClick={() => setPaletteName(p.name)}
+                          title={p.label}
+                          style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                            padding: '5px 6px', borderRadius: 4, cursor: 'pointer', border: '1.5px solid',
+                            borderColor: paletteName === p.name ? 'var(--teal,#006b6b)' : 'rgba(0,0,0,0.12)',
+                            background: paletteName === p.name ? 'rgba(0,107,107,0.07)' : '#fff',
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: 2 }}>
+                            {p.colors.slice(0, 5).map((c, i) => (
+                              <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+                            ))}
+                          </div>
+                          <span style={{ fontSize: 8, color: '#888', fontWeight: 600 }}>{p.label}</span>
                         </button>
                       ))}
                     </div>

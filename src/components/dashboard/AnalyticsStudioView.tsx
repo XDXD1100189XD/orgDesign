@@ -19,6 +19,7 @@ import type { WorkCapabilityDataset } from '@/lib/workCapabilityDataset';
 import { fmtNum } from '@/lib/costSchema';
 import styles from './AnalyticsStudioView.module.css';
 import type { PendingData } from '@/lib/story/types';
+import { downloadCsv } from '@/lib/utils';
 import {
   WC_TABLE_NAMES, WC_DERIVED_FIELDS,
   getWcRows, computeWcDerived,
@@ -1215,6 +1216,17 @@ export default function AnalyticsStudioView({ file, data, rows: propRows, onRows
                           + Story
                         </button>
                       )}
+                      <button
+                        className={styles.savedLoad}
+                        title="Download as CSV"
+                        onClick={() => {
+                          const cols = [view.config.rowField ?? 'category', ...view.pivotData.colKeys].filter(Boolean);
+                          const csvRows = view.pivotData.rows.map(r => ({ [view.config.rowField ?? 'category']: r.rowKey, ...r.values })) as Record<string, unknown>[];
+                          downloadCsv(csvRows, cols, `${view.name.replace(/\s+/g, '-').toLowerCase()}.csv`);
+                        }}
+                      >
+                        ↓ CSV
+                      </button>
                     </div>
                   </div>
                 </div>

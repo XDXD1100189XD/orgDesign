@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DashboardData } from '@/lib/types';
 import { parseExcelFile, type ExcelRow } from '@/lib/parseExcel';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/lib/costSchema';
 import styles from './AdvancedAnalyticsView.module.css';
 import type { PendingData } from '@/lib/story/types';
+import { downloadCsv } from '@/lib/utils';
 
 const FTE_ALIASES = [
   'fte', 'full_time_equivalent', 'fulltime_equivalent', 'fte_count', 'headcount_fte',
@@ -20,6 +21,11 @@ const FTE_ALIASES = [
 const MONTHLY_COST_ALIASES = [
   'monthly_cost', 'monthly_salary', 'monthly_pay', 'monthly_compensation',
   'monthly_ctc', 'monthly_gross',
+] as const;
+
+const REVENUE_ALIASES = [
+  'revenue', 'total_revenue', 'annual_revenue', 'rev', 'sales', 'total_sales',
+  'revenue_usd', 'net_revenue', 'gross_revenue',
 ] as const;
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -76,7 +82,7 @@ interface DeptRow {
   openRoles: number;
   openRolesPct: number;
   avgSpan: number | null;
-  maxDepth: number;
+  revenuePerFte: number | null;
   costPerFte: number | null;
 }
 
@@ -322,26 +328,28 @@ function computeDeptAnalysis(
   monthlyCol: string | null,
   nameCol: string | null,
   idCol: string | null,
+  revenueCol: string | null,
 ): DeptRow[] {
   const { vertices, metrics } = data;
-  const { span, depth } = metrics;
+  const { span } = metrics;
   const UNASSIGNED = '(No Department)';
 
-  const byId   = new Map<string, { fte: number; cost: number }>();
-  const byName = new Map<string, { fte: number; cost: number }>();
+  const byId   = new Map<string, { fte: number; cost: number; revenue: number }>();
+  const byName = new Map<string, { fte: number; cost: number; revenue: number }>();
   const hasCostCol = !!(annualCostCol || monthlyCol);
   const hasExcel   = rows.length > 0;
 
   for (const row of rows) {
-    const fte  = fteCol ? (numVal(row[fteCol]) ?? 1) : 1;
-    let   cost = 0;
-    if (annualCostCol)      cost = numVal(row[annualCostCol]) ?? 0;
-    else if (monthlyCol)    cost = (numVal(row[monthlyCol]) ?? 0) * 12;
-    if (idCol)   { const id = String(row[idCol]   ?? '').trim().toLowerCase(); if (id) byId.set(id, { fte, cost }); }
-    if (nameCol) { const n  = normName(String(row[nameCol] ?? ''));             if (n)  byName.set(n, { fte, cost }); }
+    const fte     = fteCol ? (numVal(row[fteCol]) ?? 1) : 1;
+    let   cost    = 0;
+    if (annualCostCol)   cost = numVal(row[annualCostCol]) ?? 0;
+    else if (monthlyCol) cost = (numVal(row[monthlyCol]) ?? 0) * 12;
+    const revenue = revenueCol ? (numVal(row[revenueCol]) ?? 0) : 0;
+    if (idCol)   { const id = String(row[idCol]   ?? '').trim().toLowerCase(); if (id) byId.set(id, { fte, cost, revenue }); }
+    if (nameCol) { const n  = normName(String(row[nameCol] ?? ''));             if (n)  byName.set(n, { fte, cost, revenue }); }
   }
 
-  const getExcel = (vid: string): { fte: number; cost: number } | null => {
+  const getExcel = (vid: string): { fte: number; cost: number; revenue: number } | null => {
     const v = vertices[vid];
     if (!v) return null;
     if (idCol && v.id) { const d = byId.get(v.id.toLowerCase()); if (d) return d; }
@@ -349,22 +357,21 @@ function computeDeptAnalysis(
     return null;
   };
 
-  type Acc = { headcount: number; fte: number; openRoles: number; spanSum: number; spanCount: number; maxDepth: number; totalCost: number };
+  type Acc = { headcount: number; fte: number; openRoles: number; spanSum: number; spanCount: number; totalCost: number; totalRevenue: number };
   const groups = new Map<string, Acc>();
 
   for (const [vid, v] of Object.entries(vertices)) {
     const key = v.dept || UNASSIGNED;
-    if (!groups.has(key)) groups.set(key, { headcount: 0, fte: 0, openRoles: 0, spanSum: 0, spanCount: 0, maxDepth: 0, totalCost: 0 });
+    if (!groups.has(key)) groups.set(key, { headcount: 0, fte: 0, openRoles: 0, spanSum: 0, spanCount: 0, totalCost: 0, totalRevenue: 0 });
     const g = groups.get(key)!;
     g.headcount++;
     if (v.open_role) g.openRoles++;
-    const d = depth[vid] ?? 0;
-    if (d > g.maxDepth) g.maxDepth = d;
     const s = span[vid] ?? 0;
     if (s > 0) { g.spanSum += s; g.spanCount++; }
     const ex = getExcel(vid);
-    g.fte       += ex?.fte  ?? 1;
-    g.totalCost += ex?.cost ?? 0;
+    g.fte          += ex?.fte     ?? 1;
+    g.totalCost    += ex?.cost    ?? 0;
+    g.totalRevenue += ex?.revenue ?? 0;
   }
 
   return [...groups.entries()]
@@ -376,7 +383,7 @@ function computeDeptAnalysis(
       openRoles: g.openRoles,
       openRolesPct: g.headcount > 0 ? Math.round((g.openRoles / g.headcount) * 100) : 0,
       avgSpan: g.spanCount > 0 ? Math.round((g.spanSum / g.spanCount) * 10) / 10 : null,
-      maxDepth: g.maxDepth,
+      revenuePerFte: (hasExcel && revenueCol && g.fte > 0) ? Math.round(g.totalRevenue / g.fte) : null,
       costPerFte: (hasExcel && hasCostCol && g.fte > 0) ? Math.round(g.totalCost / g.fte) : null,
     }));
 }
@@ -472,9 +479,10 @@ interface Props {
   file?: File | null;
   sourceRows?: ExcelRow[];
   onAddToStory?: (data: PendingData) => void;
+  onNavigateToEmployee?: (rowId: string) => void;
 }
 
-export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToStory }: Props) {
+export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToStory, onNavigateToEmployee }: Props) {
   const [rows, setRows] = useState<ExcelRow[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
@@ -510,14 +518,32 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
   const grossCol     = useMemo(() => detectColumn(headers, GROSS_SALARY_ALIASES), [headers]);
   const fteCol       = useMemo(() => detectColumn(headers, FTE_ALIASES), [headers]);
   const monthlyCol   = useMemo(() => detectColumn(headers, MONTHLY_COST_ALIASES), [headers]);
+  const revenueCol   = useMemo(() => detectColumn(headers, REVENUE_ALIASES), [headers]);
   const jobFamCol    = useMemo(() => detectColumn(headers, JOB_FAMILY_ALIASES), [headers]);
   const nameCol      = useMemo(() => detectColumn(headers, EMPLOYEE_NAME_ALIASES), [headers]);
   const idCol        = useMemo(() => detectColumn(headers, EMPLOYEE_ID_ALIASES), [headers]);
 
+  const findRowId = useCallback((vertexId: string): string => {
+    if (rows.length === 0) return vertexId;
+    const v = data.vertices[vertexId];
+    if (!v) return vertexId;
+    if (idCol && v.id) {
+      const vid = v.id.toLowerCase();
+      const idx = rows.findIndex((r) => String(r[idCol] ?? '').trim().toLowerCase() === vid);
+      if (idx !== -1) return String(idx);
+    }
+    if (nameCol) {
+      const vname = normName(v.display_name);
+      const idx = rows.findIndex((r) => normName(String(r[nameCol] ?? '')) === vname);
+      if (idx !== -1) return String(idx);
+    }
+    return vertexId;
+  }, [rows, idCol, nameCol, data.vertices]);
+
   const structural   = useMemo(() => computeStructural(data), [data]);
   const costs        = useMemo(() => rows.length ? computeCosts(rows, colMap, enabled) : null, [rows, colMap, enabled]);
   const anomalous    = useMemo(() => (rows.length && grossCol) ? findAnomalous(data, rows, grossCol, nameCol, idCol) : [], [data, rows, grossCol, nameCol, idCol]);
-  const deptAnalysis = useMemo(() => computeDeptAnalysis(data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol), [data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol]);
+  const deptAnalysis = useMemo(() => computeDeptAnalysis(data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol, revenueCol), [data, rows, fteCol, grossCol, monthlyCol, nameCol, idCol, revenueCol]);
 
   const toggleCost = (key: CostKey) => {
     setEnabled((prev) => {
@@ -577,7 +603,7 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
 
         {/* Layer table */}
         {onAddToStory && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 6 }}>
             <button
               onClick={() => {
                 const now = new Date().toISOString();
@@ -602,6 +628,16 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
               }}
             >
               + Story
+            </button>
+            <button
+              onClick={() => downloadCsv(structural.layerStats.map(l => ({ Layer: `L${l.layer}`, Managers: l.managerCount, Min: l.min, Max: l.max, Median: l.med, Avg: l.avg })), ['Layer', 'Managers', 'Min', 'Max', 'Median', 'Avg'], 'span-of-control.csv')}
+              style={{
+                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+              }}
+            >
+              ↓ CSV
             </button>
           </div>
         )}
@@ -663,7 +699,11 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
               <div className={styles.miniList}>
                 {structural.soloManagers.map((m) => (
                   <div key={m.id} className={styles.miniItem}>
-                    <span className={styles.miniName}>{m.name}</span>
+                    <span
+                      className={`${styles.miniName}${onNavigateToEmployee ? ` ${styles.nameLink}` : ''}`}
+                      onClick={() => onNavigateToEmployee?.(findRowId(m.id))}
+                      title={onNavigateToEmployee ? 'View in Employees tab' : undefined}
+                    >{m.name}</span>
                     <span className={styles.miniRole}>{m.role}</span>
                     <span className={styles.spanDot} data-span={m.span}>{m.span}</span>
                   </div>
@@ -685,9 +725,17 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
               <div className={styles.chainList}>
                 {structural.compressionNodes.map((n) => (
                   <div key={n.id} className={styles.chainItem}>
-                    <span className={styles.chainNode}>{n.name}</span>
+                    <span
+                      className={`${styles.chainNode}${onNavigateToEmployee ? ` ${styles.nameLink}` : ''}`}
+                      onClick={() => onNavigateToEmployee?.(findRowId(n.id))}
+                      title={onNavigateToEmployee ? 'View in Employees tab' : undefined}
+                    >{n.name}</span>
                     <span className={styles.chainArrow}>→</span>
-                    <span className={styles.chainNode}>{n.kidName}</span>
+                    <span
+                      className={`${styles.chainNode}${onNavigateToEmployee ? ` ${styles.nameLink}` : ''}`}
+                      onClick={() => onNavigateToEmployee?.(findRowId(n.kidId))}
+                      title={onNavigateToEmployee ? 'View in Employees tab' : undefined}
+                    >{n.kidName}</span>
                   </div>
                 ))}
               </div>
@@ -712,7 +760,13 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
               <div className={styles.dtScrollBody}>
                 {enrichedFuncSpread.map((m) => (
                   <div key={m.id} className={styles.dtRow}>
-                    <div className={styles.dtCell} style={{ flex: 2 }}>{m.name}</div>
+                    <div className={styles.dtCell} style={{ flex: 2 }}>
+                      <span
+                        className={onNavigateToEmployee ? styles.nameLink : undefined}
+                        onClick={() => onNavigateToEmployee?.(findRowId(m.id))}
+                        title={onNavigateToEmployee ? 'View in Employees tab' : undefined}
+                      >{m.name}</span>
+                    </div>
                     <div className={styles.dtCell}><span className={styles.roleTag}>{m.role}</span></div>
                     <div className={styles.dtCell}>{m.span}</div>
                     <div className={styles.dtCell} style={{ flex: 3 }}>
@@ -735,11 +789,11 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
         <SectionHeader
           num="03"
           title="Department Analysis"
-          sub="Headcount, open roles, span of control, depth, and cost per FTE grouped by department."
+          sub="Headcount, open roles, span of control, revenue per FTE, and cost per FTE grouped by department."
         />
 
         {onAddToStory && deptAnalysis.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 6 }}>
             <button
               onClick={() => {
                 const now = new Date().toISOString();
@@ -750,10 +804,10 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
                     FTE: r.fte,
                     'Open Roles': r.openRoles,
                     'Avg Span': r.avgSpan ?? '—',
-                    'Max Depth': r.maxDepth,
+                    'Revenue/FTE': r.revenuePerFte ?? '—',
                     'Cost/FTE': r.costPerFte ?? '—',
                   })),
-                  columns: ['Department', 'Headcount', 'FTE', 'Open Roles', 'Avg Span', 'Max Depth', 'Cost/FTE'],
+                  columns: ['Department', 'Headcount', 'FTE', 'Open Roles', 'Avg Span', 'Revenue/FTE', 'Cost/FTE'],
                   source: { type: 'org-metrics', label: 'Department Analysis', capturedAt: now },
                   label: 'Department Analysis',
                 });
@@ -766,6 +820,16 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
             >
               + Story
             </button>
+            <button
+              onClick={() => downloadCsv(deptAnalysis.map(r => ({ Department: r.dept, Headcount: r.headcount, FTE: r.fte, 'Open Roles': r.openRoles, 'Avg Span': r.avgSpan ?? '—', 'Revenue/FTE': r.revenuePerFte ?? '—', 'Cost/FTE': r.costPerFte ?? '—' })), ['Department', 'Headcount', 'FTE', 'Open Roles', 'Avg Span', 'Revenue/FTE', 'Cost/FTE'], 'department-analysis.csv')}
+              style={{
+                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+              }}
+            >
+              ↓ CSV
+            </button>
           </div>
         )}
         <div className={styles.dataTable}>
@@ -775,7 +839,7 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
             <div className={styles.dtCell}>FTE</div>
             <div className={styles.dtCell}>Open Roles</div>
             <div className={styles.dtCell}>Avg Span</div>
-            <div className={styles.dtCell}>Max Depth</div>
+            <div className={styles.dtCell}>Revenue / FTE</div>
             <div className={styles.dtCell}>Cost / FTE</div>
           </div>
           <div className={styles.dtScrollBody}>
@@ -796,7 +860,9 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
                 <div className={styles.dtCell}>
                   {row.avgSpan !== null ? row.avgSpan : <span className={styles.deptDash}>—</span>}
                 </div>
-                <div className={styles.dtCell}>{row.maxDepth}</div>
+                <div className={`${styles.dtCell} ${styles.bold}`}>
+                  {row.revenuePerFte !== null ? fmtNum(row.revenuePerFte) : <span className={styles.deptDash}>—</span>}
+                </div>
                 <div className={`${styles.dtCell} ${styles.bold}`}>
                   {row.costPerFte !== null ? fmtNum(row.costPerFte) : <span className={styles.deptDash}>—</span>}
                 </div>
@@ -969,23 +1035,25 @@ export default function AdvancedAnalyticsView({ data, file, sourceRows, onAddToS
                 <div className={styles.dtCell}>Mgr. Salary</div>
                 <div className={styles.dtCell}>Delta</div>
               </div>
-              {anomalous.map((a, i) => (
-                <div key={i} className={`${styles.dtRow} ${a.delta === 0 ? styles.dtRowWarn : styles.dtRowRed}`}>
-                  <div className={styles.dtCell} style={{ flex: 2 }}>
-                    <div>{a.empName}</div>
-                    <div className={styles.smallRole}>{a.empRole}</div>
+              <div className={styles.dtScrollBody}>
+                {anomalous.map((a, i) => (
+                  <div key={i} className={`${styles.dtRow} ${a.delta === 0 ? styles.dtRowWarn : styles.dtRowRed}`}>
+                    <div className={styles.dtCell} style={{ flex: 2 }}>
+                      <div>{a.empName}</div>
+                      <div className={styles.smallRole}>{a.empRole}</div>
+                    </div>
+                    <div className={`${styles.dtCell} ${styles.bold}`}>{fmtNum(a.empSalary)}</div>
+                    <div className={styles.dtCell} style={{ flex: 2 }}>
+                      <div>{a.mgrName}</div>
+                      <div className={styles.smallRole}>{a.mgrRole}</div>
+                    </div>
+                    <div className={styles.dtCell}>{fmtNum(a.mgrSalary)}</div>
+                    <div className={`${styles.dtCell} ${styles.bold} ${a.delta > 0 ? styles.red : styles.amber}`}>
+                      {a.delta === 0 ? 'Equal' : `+${fmtNum(a.delta)}`}
+                    </div>
                   </div>
-                  <div className={`${styles.dtCell} ${styles.bold}`}>{fmtNum(a.empSalary)}</div>
-                  <div className={styles.dtCell} style={{ flex: 2 }}>
-                    <div>{a.mgrName}</div>
-                    <div className={styles.smallRole}>{a.mgrRole}</div>
-                  </div>
-                  <div className={styles.dtCell}>{fmtNum(a.mgrSalary)}</div>
-                  <div className={`${styles.dtCell} ${styles.bold} ${a.delta > 0 ? styles.red : styles.amber}`}>
-                    {a.delta === 0 ? 'Equal' : `+${fmtNum(a.delta)}`}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </>
         )}

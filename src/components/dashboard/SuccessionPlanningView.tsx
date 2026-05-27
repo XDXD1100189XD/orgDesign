@@ -23,7 +23,7 @@ type SuccessionPlanningProps = {
   successionCandidates: SuccessionCandidateRecord[];
   onSuccessionCandidatesChange: (rows: SuccessionCandidateRecord[]) => void;
   embeddedMode?: boolean;
-  embeddedSection?: "all" | "risk-overview" | "remaining";
+  embeddedSection?: "all" | "risk-overview" | "remaining" | "attention-flags";
 };
 
 const statusOptions: SuccessionCandidateStatus[] = [
@@ -196,8 +196,19 @@ export default function SuccessionPlanningView({
 
   const selectedCandidates = useMemo((): ScoredCandidate[] => {
     if (!portfolio || !selectedRole) return [];
+    const targetLevel = parseGradeLevel(selectedRole.grade);
     return portfolio.candidates
-      .filter((c) => c.targetEmployeeId === selectedRole.employeeId)
+      .filter((c) => {
+        if (c.targetEmployeeId !== selectedRole.employeeId) return false;
+        if (targetLevel > 0) {
+          const candLevel = parseGradeLevel(c.grade);
+          if (candLevel > 0) {
+            const diff = targetLevel - candLevel;
+            if (diff < 1 || diff > 2) return false;
+          }
+        }
+        return true;
+      })
       .map((c) =>
         scoreCandidateFit(c, selectedRole.department, selectedRole.grade),
       )
@@ -402,20 +413,25 @@ export default function SuccessionPlanningView({
           </div>
         </section>
 
-        <section className={sp.sectionPanel}>
-          <div className={sp.sectionHeader}>
-            <div>
-              <h3 className={sp.sectionTitle}>Attention Flags / Conflicts</h3>
-              <p className={sp.sectionSubtitle}>
-                Coverage gaps, workload risk, and selected-candidate conflicts.
-              </p>
-            </div>
-          </div>
-          <div className={sp.sectionBody}>
-            <AttentionFlags portfolio={portfolio} />
-          </div>
-        </section>
       </>
+    );
+  }
+
+  if (embeddedMode && embeddedSection === "attention-flags") {
+    return (
+      <section className={sp.sectionPanel}>
+        <div className={sp.sectionHeader}>
+          <div>
+            <h3 className={sp.sectionTitle}>Attention Flags / Conflicts</h3>
+            <p className={sp.sectionSubtitle}>
+              Coverage gaps, workload risk, and selected-candidate conflicts.
+            </p>
+          </div>
+        </div>
+        <div className={sp.sectionBody}>
+          <AttentionFlags portfolio={portfolio} />
+        </div>
+      </section>
     );
   }
 

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { CompMatrix, DashboardData, AIChartRequest, ScenarioAction, ValidatedPlan } from '@/lib/types';
 import type { ExcelRow } from '@/lib/parseExcel';
 import type { PendingData } from '@/lib/story/types';
+import { downloadCsv } from '@/lib/utils';
 import { buildSystemContext } from '@/lib/aiContext';
 import {
   buildExecutionPlan,
@@ -315,7 +316,7 @@ function ResultTable({ rows, onAddToStory }: { rows: Record<string, unknown>[]; 
   return (
     <div className={styles.resultTableWrap}>
       {onAddToStory && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginBottom: 4 }}>
           <button
             onClick={() => {
               const now = new Date().toISOString();
@@ -333,6 +334,16 @@ function ResultTable({ rows, onAddToStory }: { rows: Record<string, unknown>[]; 
             }}
           >
             + Story
+          </button>
+          <button
+            onClick={() => downloadCsv(rows as Record<string, unknown>[], headers, 'ai-result.csv')}
+            style={{
+              background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+              borderRadius: 3, padding: '2px 8px', fontSize: 10,
+              color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+            }}
+          >
+            ↓ CSV
           </button>
         </div>
       )}
@@ -1750,6 +1761,28 @@ export default function AIAssistantView({ data, rows, toBeRows, stateId = 'as-is
         const sql      = toolInput.sql as string;
         const target   = toolInput.target as 'as-is' | 'to-be' | 'both';
         const rationale = (toolInput.rationale as string) ?? '';
+
+        // Guard: catch attempts to add new columns via UPDATE/INSERT.
+        // AlaSQL cannot create columns on-the-fly; redirect the AI to set_field_mapping.
+        const upperSql = sql.trim().toUpperCase();
+        if (upperSql.startsWith('UPDATE') || upperSql.startsWith('INSERT')) {
+          const currentCols = new Set(
+            Object.keys((alasql.tables[AI_TABLE]?.data?.[0] as ExcelRow | undefined) ?? {})
+          );
+          const setMatch = sql.match(/\bSET\b([\s\S]+?)(?:\bWHERE\b|;|$)/i);
+          if (setMatch) {
+            const newCols = setMatch[1]
+              .split(',')
+              .map(a => a.trim().split(/\s*=\s*/)[0].trim().replace(/^[`"[]|[`"\]]+$/g, ''))
+              .filter(col => col && !currentCols.has(col));
+            if (newCols.length > 0) {
+              return {
+                ok: false,
+                error: `AlaSQL cannot add new columns via UPDATE. Column(s) [${newCols.join(', ')}] do not exist in the table schema. Use set_field_mapping with derived_sql instead: write a SELECT returning exactly \`employee_id\` and \`field_value\` columns, and set new_column_name to "${newCols[0]}".`,
+              };
+            }
+          }
+        }
 
         const confirmed = await new Promise<boolean>(resolve =>
           setPendingRowMutation({ sql, target, rationale, resolve })

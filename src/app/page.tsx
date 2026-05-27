@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   computeStateMetrics,
   fmtCost,
@@ -199,7 +206,9 @@ export default function HomePage() {
   const [showChangeDrawer, setShowChangeDrawer] = useState(false);
   const [workCapabilityDataset, setWorkCapabilityDataset] =
     useState<WorkCapabilityDataset | null>(null);
-  const [successionCandidates, setSuccessionCandidates] = useState<SuccessionCandidateRecord[]>([]);
+  const [successionCandidates, setSuccessionCandidates] = useState<
+    SuccessionCandidateRecord[]
+  >([]);
 
   // ── Graph version — incremented on every row/hierarchy mutation ──
   const [graphVersion, setGraphVersion] = useState(0);
@@ -212,9 +221,12 @@ export default function HomePage() {
 
   // ── UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("summary");
-  const [navigationLoadingMessage, setNavigationLoadingMessage] = useState<string | null>(null);
+  const [navigationLoadingMessage, setNavigationLoadingMessage] = useState<
+    string | null
+  >(null);
   const [showAIFloat, setShowAIFloat] = useState(false);
-  const [workforceSubTab, setWorkforceSubTab] = useState<WorkforceSubTab>("activity-analysis");
+  const [workforceSubTab, setWorkforceSubTab] =
+    useState<WorkforceSubTab>("activity-analysis");
   const [studioSlice, setStudioSlice] = useState<StateSlice>("as-is");
   const [tableSlice, setTableSlice] = useState<StateSlice>("as-is");
   const [compTarget, setCompTarget] = useState<CompTarget>("as-is");
@@ -224,8 +236,12 @@ export default function HomePage() {
     toBeFileName?: string | null;
   }>({});
   const shellRef = useRef<HTMLDivElement>(null);
-  const navigationLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const navigationSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigationLoadingTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const navigationSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const TABS = BASE_TABS;
 
@@ -265,12 +281,14 @@ export default function HomePage() {
   useEffect(() => {
     if (!workCapabilityDataset) return;
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-    const alasql = require('alasql') as any;
+    const alasql = require("alasql") as any;
     for (const tbl of WC_TABLE_NAMES) {
       const rows = computeWcDerived(workCapabilityDataset, tbl);
       alasql(`DROP TABLE IF EXISTS ${tbl}`);
       alasql(`CREATE TABLE ${tbl}`);
-      alasql.tables[tbl].data = rows.map((r: Record<string, unknown>) => ({ ...r }));
+      alasql.tables[tbl].data = rows.map((r: Record<string, unknown>) => ({
+        ...r,
+      }));
     }
   }, [workCapabilityDataset]);
 
@@ -338,7 +356,9 @@ export default function HomePage() {
 
   const restoreFromOfflineSnapshot = useCallback(
     (snapshot: OfflineSnapshotPayload) => {
-      const hasToBe = Boolean(snapshot.dataset?.states.toBe ?? snapshot.toBeData);
+      const hasToBe = Boolean(
+        snapshot.dataset?.states.toBe ?? snapshot.toBeData,
+      );
       const nextStudioSlice =
         snapshot.ui.studioSlice === "to-be" && hasToBe ? "to-be" : "as-is";
       const nextTableSlice =
@@ -398,7 +418,9 @@ export default function HomePage() {
 
   const handleSaveSnapshot = useCallback(async () => {
     if (!data && !dataset) return;
-    const passphrase = window.prompt("Enter a passphrase for this encrypted snapshot.");
+    const passphrase = window.prompt(
+      "Enter a passphrase for this encrypted snapshot.",
+    );
     if (passphrase == null) return;
     if (!passphrase.trim()) {
       window.alert("Snapshot passphrase is required.");
@@ -454,7 +476,9 @@ export default function HomePage() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Could not save snapshot.");
+      window.alert(
+        err instanceof Error ? err.message : "Could not save snapshot.",
+      );
     }
   }, [
     activeSlideId,
@@ -508,7 +532,8 @@ export default function HomePage() {
   const switchActiveTab = useCallback(
     (tab: Tab) => {
       if (tab === activeTab) return;
-      const subTab = tab === "workforce-intelligence" ? workforceSubTab : undefined;
+      const subTab =
+        tab === "workforce-intelligence" ? workforceSubTab : undefined;
       showNavigationLoading(getNavigationLoadingMessage(tab, subTab));
       if (navigationSwitchTimerRef.current) {
         clearTimeout(navigationSwitchTimerRef.current);
@@ -1232,15 +1257,20 @@ export default function HomePage() {
   );
 
   // ── Story builder ──
-  const handleAddToStory = useCallback((data: PendingData) => {
-    if (libraryItems.length >= 10) {
-      setLibraryToast('Library is full (10/10). Remove an item from the library first.');
-      setTimeout(() => setLibraryToast(null), 3500);
-      return;
-    }
-    setLibraryItems(prev => [...prev, data]);
-    switchActiveTab('story');
-  }, [libraryItems, switchActiveTab]);
+  const handleAddToStory = useCallback(
+    (data: PendingData) => {
+      if (libraryItems.length >= 10) {
+        setLibraryToast(
+          "Library is full (10/10). Remove an item from the library first.",
+        );
+        setTimeout(() => setLibraryToast(null), 3500);
+        return;
+      }
+      setLibraryItems((prev) => [...prev, data]);
+      switchActiveTab("story");
+    },
+    [libraryItems, switchActiveTab],
+  );
 
   // ── To-Be handlers ──
   const handleCopyFromAsIs = useCallback(() => {
@@ -1260,7 +1290,10 @@ export default function HomePage() {
           "Use this as a controlled baseline before target-state edits.",
         ],
       });
-      setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: "Copied from As-Is" }));
+      setSnapshotSourceFiles((prev) => ({
+        ...prev,
+        toBeFileName: "Copied from As-Is",
+      }));
       return;
     }
     if (!data) return;
@@ -1293,7 +1326,10 @@ export default function HomePage() {
       copiedRows ? copiedRows.map((row) => ({ ...row })) : null,
     );
     setToBeFile(excelFile);
-    setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: excelFile?.name ?? "Copied from As-Is" }));
+    setSnapshotSourceFiles((prev) => ({
+      ...prev,
+      toBeFileName: excelFile?.name ?? "Copied from As-Is",
+    }));
   }, [
     appendChange,
     asIsMutatedRows,
@@ -1330,7 +1366,10 @@ export default function HomePage() {
           title: "To-Be file uploaded",
           summary: `${file.name} loaded as target-state data.`,
         });
-        setSnapshotSourceFiles((prev) => ({ ...prev, toBeFileName: file.name }));
+        setSnapshotSourceFiles((prev) => ({
+          ...prev,
+          toBeFileName: file.name,
+        }));
         setShowToBeUpload(false);
         return;
       }
@@ -1564,7 +1603,16 @@ export default function HomePage() {
                 onClick={() => switchActiveTab("readiness")}
                 title="View data quality and completeness report"
               >
-                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="10" cy="10" r="8" />
                   <path d="M10 6v4l2.5 2.5" />
                 </svg>
@@ -1575,7 +1623,16 @@ export default function HomePage() {
                 onClick={() => switchActiveTab("comp")}
                 title="Compensation setup"
               >
-                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <rect x="3" y="5" width="14" height="10" rx="1.5" />
                   <path d="M7 10h6M10 7v6" />
                 </svg>
@@ -1647,7 +1704,11 @@ export default function HomePage() {
       </nav>
 
       {navigationLoadingMessage && (
-        <div className={styles.navigationLoading} role="status" aria-live="polite">
+        <div
+          className={styles.navigationLoading}
+          role="status"
+          aria-live="polite"
+        >
           <span className={styles.navigationLoadingDot} />
           {navigationLoadingMessage}
         </div>
@@ -1687,6 +1748,10 @@ export default function HomePage() {
           file={excelFile}
           sourceRows={asIsHierarchyRows ?? undefined}
           onAddToStory={handleAddToStory}
+          onNavigateToEmployee={(rowId) => {
+            switchActiveTab("table");
+            setTableJumpId(rowId);
+          }}
         />
       </div>
 
@@ -1971,6 +2036,7 @@ export default function HomePage() {
           data={tableData}
           file={tableRows ? null : tableFile}
           jumpToId={tableJumpId}
+          isActive={activeTab === "table"}
           onJumpComplete={() => setTableJumpId(null)}
           externalRows={tableRows}
           onRowsChange={(rows, meta) =>
@@ -2025,15 +2091,20 @@ export default function HomePage() {
       {/* ── 09 Workforce Intelligence (merged section) ── */}
       <div
         data-view="workforce-intelligence"
-        style={{ display: activeTab === "workforce-intelligence" ? "block" : "none" }}
+        style={{
+          display: activeTab === "workforce-intelligence" ? "block" : "none",
+        }}
       >
         {/* Sub-tab navigation */}
-        <div style={{
-          display: 'flex', gap: 0,
-          borderBottom: '1px solid rgba(0,0,0,0.1)',
-          marginBottom: 24,
-          background: 'var(--cream, #f8f6f0)',
-        }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 0,
+            borderBottom: "1px solid rgba(0,0,0,0.1)",
+            marginBottom: 24,
+            background: "var(--cream, #f8f6f0)",
+          }}
+        >
           {(
             [
               { key: "activity-analysis", label: "Activity Analysis" },
@@ -2044,23 +2115,25 @@ export default function HomePage() {
               key={st.key}
               onClick={() => switchWorkforceSubTab(st.key)}
               style={{
-                padding: '10px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: workforceSubTab === st.key
-                  ? '2px solid var(--teal, #006b6b)'
-                  : '2px solid transparent',
-                color: workforceSubTab === st.key
-                  ? 'var(--teal, #006b6b)'
-                  : 'var(--slate-2, #6b7280)',
-                fontFamily: 'var(--font-mono)',
+                padding: "10px 20px",
+                background: "none",
+                border: "none",
+                borderBottom:
+                  workforceSubTab === st.key
+                    ? "2px solid var(--teal, #006b6b)"
+                    : "2px solid transparent",
+                color:
+                  workforceSubTab === st.key
+                    ? "var(--teal, #006b6b)"
+                    : "var(--slate-2, #6b7280)",
+                fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 fontWeight: workforceSubTab === st.key ? 700 : 500,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-                whiteSpace: 'nowrap',
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                transition: "all 0.15s",
+                whiteSpace: "nowrap",
               }}
             >
               {st.label}
@@ -2069,7 +2142,11 @@ export default function HomePage() {
         </div>
 
         {/* Sub-section content */}
-        <div style={{ display: workforceSubTab === "activity-analysis" ? "block" : "none" }}>
+        <div
+          style={{
+            display: workforceSubTab === "activity-analysis" ? "block" : "none",
+          }}
+        >
           <WorkCapabilityIngestionPanel
             dataset={workCapabilityDataset}
             orgDataset={dataset}
@@ -2078,6 +2155,7 @@ export default function HomePage() {
               columnMapping?.["Employee ID"]?.column ?? "employee_id"
             }
             onDatasetReady={setWorkCapabilityDataset}
+            onAddToStory={handleAddToStory}
             combinedAnalysisChartsContent={
               <ActivityAnalysisView
                 dataset={workCapabilityDataset}
@@ -2088,6 +2166,7 @@ export default function HomePage() {
                 columnMapping={columnMapping}
                 embeddedMode
                 embeddedSection="category-charts"
+                onAddToStory={handleAddToStory}
               />
             }
             combinedAnalysisPortfolioContent={
@@ -2100,11 +2179,16 @@ export default function HomePage() {
                 columnMapping={columnMapping}
                 embeddedMode
                 embeddedSection="portfolio-workload"
+                onAddToStory={handleAddToStory}
               />
             }
           />
         </div>
-        <div style={{ display: workforceSubTab === "talent-mapping" ? "block" : "none" }}>
+        <div
+          style={{
+            display: workforceSubTab === "talent-mapping" ? "block" : "none",
+          }}
+        >
           <SkillsCapabilityView
             dataset={workCapabilityDataset}
             orgRows={asIsMutatedRows ?? excelRows ?? []}
@@ -2141,6 +2225,20 @@ export default function HomePage() {
                 embeddedSection="remaining"
               />
             }
+            successionFlagsContent={
+              <SuccessionPlanningView
+                dataset={workCapabilityDataset}
+                orgRows={asIsMutatedRows ?? excelRows ?? []}
+                orgEmployeeIdColumn={
+                  columnMapping?.["Employee ID"]?.column ?? "employee_id"
+                }
+                columnMapping={columnMapping}
+                successionCandidates={successionCandidates}
+                onSuccessionCandidatesChange={setSuccessionCandidates}
+                embeddedMode
+                embeddedSection="attention-flags"
+              />
+            }
           />
         </div>
       </div>
@@ -2166,21 +2264,23 @@ export default function HomePage() {
 
       {/* Library full toast */}
       {libraryToast && (
-        <div style={{
-          position: 'fixed',
-          bottom: 88,
-          right: 28,
-          zIndex: 9997,
-          background: '#333',
-          color: '#fff',
-          padding: '10px 18px',
-          borderRadius: 6,
-          fontSize: 13,
-          fontWeight: 500,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-          pointerEvents: 'none',
-          maxWidth: 340,
-        }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: 88,
+            right: 28,
+            zIndex: 9997,
+            background: "#333",
+            color: "#fff",
+            padding: "10px 18px",
+            borderRadius: 6,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+            pointerEvents: "none",
+            maxWidth: 340,
+          }}
+        >
           {libraryToast}
         </div>
       )}
@@ -2190,50 +2290,65 @@ export default function HomePage() {
         onClick={() => setShowAIFloat((f) => !f)}
         title={showAIFloat ? "Close AI Assistant" : "Open AI Assistant"}
         style={{
-          position: 'fixed',
+          position: "fixed",
           bottom: 28,
           right: 28,
           zIndex: 9998,
           width: 52,
           height: 52,
-          borderRadius: '50%',
-          background: showAIFloat ? 'var(--ink, #1a1d20)' : 'var(--teal, #006b6b)',
-          color: '#fff',
-          border: 'none',
-          cursor: 'pointer',
-          boxShadow: '0 4px 24px rgba(0,107,107,0.4)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          borderRadius: "50%",
+          background: showAIFloat
+            ? "var(--ink, #1a1d20)"
+            : "var(--teal, #006b6b)",
+          color: "#fff",
+          border: "none",
+          cursor: "pointer",
+          boxShadow: "0 4px 24px rgba(0,107,107,0.4)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           fontSize: 20,
-          transition: 'background 0.2s, transform 0.15s',
+          transition: "background 0.2s, transform 0.15s",
         }}
       >
-        {showAIFloat ? '✕' : (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        {showAIFloat ? (
+          "✕"
+        ) : (
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         )}
       </button>
 
       {/* ── Floating AI Panel ── */}
       {showAIFloat && (
-        <div style={{
-          position: 'fixed',
-          bottom: 92,
-          right: 24,
-          zIndex: 9995,
-          width: 460,
-          height: 620,
-          background: '#fff',
-          borderRadius: 12,
-          boxShadow: '0 12px 48px rgba(0,0,0,0.22)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          border: '1px solid rgba(0,0,0,0.1)',
-        }}>
-          <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: 92,
+            right: 24,
+            zIndex: 9995,
+            width: 460,
+            height: 620,
+            background: "#fff",
+            borderRadius: 12,
+            boxShadow: "0 12px 48px rgba(0,0,0,0.22)",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            border: "1px solid rgba(0,0,0,0.1)",
+          }}
+        >
+          <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
             <AIAssistantView
               data={aiData}
               rows={aiRows ?? []}
@@ -2430,57 +2545,137 @@ function TaxonomyChartNode({ data }: { data: TaxonomyNodeData }) {
 }
 
 const TAXONOMY_PALETTE = [
-  "#00474a", "#005c5f", "#006b6b", "#007a80", "#008f95", "#00a3aa",
+  "#00474a",
+  "#005c5f",
+  "#006b6b",
+  "#007a80",
+  "#008f95",
+  "#00a3aa",
 ];
 
 type TreemapDrill =
   | { level: "domain" }
   | { level: "category"; domainId: string; domainLabel: string }
-  | { level: "process"; domainId: string; domainLabel: string; categoryId: string; categoryLabel: string };
+  | {
+      level: "process";
+      domainId: string;
+      domainLabel: string;
+      categoryId: string;
+      categoryLabel: string;
+    };
 
 interface TaxonomyDomainCellProps {
-  x?: number; y?: number; width?: number; height?: number;
-  depth?: number; index?: number; name?: string;
-  categoryCount?: number; processCount?: number; activityCount?: number;
-  criticalActivityCount?: number; isOther?: boolean; metricLabel?: string;
-  nodeId?: string; drillLevel?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
+  index?: number;
+  name?: string;
+  categoryCount?: number;
+  processCount?: number;
+  activityCount?: number;
+  criticalActivityCount?: number;
+  isOther?: boolean;
+  metricLabel?: string;
+  nodeId?: string;
+  drillLevel?: string;
   [key: string]: unknown;
 }
 
 function TaxonomyDomainCell({
-  x = 0, y = 0, width = 0, height = 0, depth = 0, index = 0,
-  name = "", categoryCount = 0, processCount = 0, activityCount = 0,
-  criticalActivityCount = 0, isOther = false, metricLabel = "",
+  x = 0,
+  y = 0,
+  width = 0,
+  height = 0,
+  depth = 0,
+  index = 0,
+  name = "",
+  categoryCount = 0,
+  processCount = 0,
+  activityCount = 0,
+  criticalActivityCount = 0,
+  isOther = false,
+  metricLabel = "",
   drillLevel = "domain",
 }: TaxonomyDomainCellProps) {
   if (depth < 1 || width < 8 || height < 8) return null;
-  const fill = isOther ? "#8fa3b1" : (TAXONOMY_PALETTE[index % TAXONOMY_PALETTE.length] ?? "#006b6b");
+  const fill = isOther
+    ? "#8fa3b1"
+    : (TAXONOMY_PALETTE[index % TAXONOMY_PALETTE.length] ?? "#006b6b");
   const pad = 9;
   const maxChars = Math.max(3, Math.floor((width - pad * 2) / 7));
-  const shortName = name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
-  const subLabel = drillLevel === "domain"
-    ? `${categoryCount} cat · ${activityCount} act`
-    : drillLevel === "category"
-      ? `${processCount} proc · ${activityCount} act`
-      : `${activityCount} activities`;
-  const critLabel = criticalActivityCount > 0 ? `${criticalActivityCount} critical` : null;
+  const shortName =
+    name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
+  const subLabel =
+    drillLevel === "domain"
+      ? `${categoryCount} cat · ${activityCount} act`
+      : drillLevel === "category"
+        ? `${processCount} proc · ${activityCount} act`
+        : `${activityCount} activities`;
+  const critLabel =
+    criticalActivityCount > 0 ? `${criticalActivityCount} critical` : null;
   const fontSize = Math.min(13, Math.max(9, Math.floor(width / 10)));
   return (
     <g style={{ cursor: isOther ? "default" : "pointer" }}>
-      <rect x={x+1} y={y+1} width={Math.max(0,width-2)} height={Math.max(0,height-2)} rx={4} ry={4} fill={fill} stroke="#fff" strokeWidth={2} />
+      <rect
+        x={x + 1}
+        y={y + 1}
+        width={Math.max(0, width - 2)}
+        height={Math.max(0, height - 2)}
+        rx={4}
+        ry={4}
+        fill={fill}
+        stroke="#fff"
+        strokeWidth={2}
+      />
       {width > 24 && height > 16 && (
-        <text x={x+pad} y={y+18} fill="#fff" fontSize={fontSize} fontWeight={700}>{shortName}</text>
+        <text
+          x={x + pad}
+          y={y + 18}
+          fill="#fff"
+          fontSize={fontSize}
+          fontWeight={700}
+        >
+          {shortName}
+        </text>
       )}
       {width > 70 && height > 32 && (
-        <text x={x+pad} y={y+32} fill="rgba(255,255,255,0.88)" fontSize={Math.min(11,fontSize)} fontWeight={500}>{metricLabel}</text>
+        <text
+          x={x + pad}
+          y={y + 32}
+          fill="rgba(255,255,255,0.88)"
+          fontSize={Math.min(11, fontSize)}
+          fontWeight={500}
+        >
+          {metricLabel}
+        </text>
       )}
       {width > 100 && height > 46 && (
-        <text x={x+pad} y={y+46} fill="rgba(255,255,255,0.58)" fontSize={9}>{subLabel}</text>
+        <text x={x + pad} y={y + 46} fill="rgba(255,255,255,0.58)" fontSize={9}>
+          {subLabel}
+        </text>
       )}
       {critLabel && width > 80 && height > 60 && (
         <>
-          <rect x={x+pad} y={y+52} width={Math.min(width-pad*2-4, critLabel.length*6+10)} height={12} rx={2} ry={2} fill="rgba(220,38,38,0.75)" />
-          <text x={x+pad+4} y={y+61} fill="#fff" fontSize={8.5} fontWeight={600}>{critLabel}</text>
+          <rect
+            x={x + pad}
+            y={y + 52}
+            width={Math.min(width - pad * 2 - 4, critLabel.length * 6 + 10)}
+            height={12}
+            rx={2}
+            ry={2}
+            fill="rgba(220,38,38,0.75)"
+          />
+          <text
+            x={x + pad + 4}
+            y={y + 61}
+            fill="#fff"
+            fontSize={8.5}
+            fontWeight={600}
+          >
+            {critLabel}
+          </text>
         </>
       )}
     </g>
@@ -2496,6 +2691,7 @@ function WorkCapabilityTaxonomyManager({
   readOnlyCatalog = false,
   combinedAnalysisChartsContent = null,
   combinedAnalysisPortfolioContent = null,
+  onAddToStory,
 }: {
   dataset: WorkCapabilityDataset;
   orgRows: ExcelRow[];
@@ -2505,6 +2701,7 @@ function WorkCapabilityTaxonomyManager({
   readOnlyCatalog?: boolean;
   combinedAnalysisChartsContent?: ReactNode;
   combinedAnalysisPortfolioContent?: ReactNode;
+  onAddToStory?: (data: PendingData) => void;
 }) {
   const [showExperimentalMap, setShowExperimentalMap] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState("taxonomy-root");
@@ -2528,9 +2725,15 @@ function WorkCapabilityTaxonomyManager({
   const [mergeModalActivityIds, setMergeModalActivityIds] = useState<
     string[] | null
   >(null);
-  const [reviewHighlightIds, setReviewHighlightIds] = useState<string[] | null>(null);
-  const [treemapMetric, setTreemapMetric] = useState<'fte' | 'cost' | 'activities'>('fte');
-  const [treemapDrill, setTreemapDrill] = useState<TreemapDrill>({ level: "domain" });
+  const [reviewHighlightIds, setReviewHighlightIds] = useState<string[] | null>(
+    null,
+  );
+  const [treemapMetric, setTreemapMetric] = useState<
+    "fte" | "cost" | "activities"
+  >("fte");
+  const [treemapDrill, setTreemapDrill] = useState<TreemapDrill>({
+    level: "domain",
+  });
 
   const activityLibrary = dataset.shared.activityLibrary;
   const activeActivities = activityLibrary.filter((row) =>
@@ -2578,41 +2781,65 @@ function WorkCapabilityTaxonomyManager({
 
   const treemapData = useMemo(() => {
     const fmtMetric = (fte: number, cost: number, act: number) =>
-      treemapMetric === "fte" ? `${fte.toFixed(1)} FTE` :
-      treemapMetric === "cost" ? fmtCost(cost) :
-      `${act} activities`;
+      treemapMetric === "fte"
+        ? `${fte.toFixed(1)} FTE`
+        : treemapMetric === "cost"
+          ? fmtCost(cost)
+          : `${act} activities`;
     const getSize = (fte: number, cost: number, act: number) =>
-      Math.max(0.01, treemapMetric === "fte" ? fte : treemapMetric === "cost" ? cost : act);
-    const sortAsc = (a: { totalFTE: number; totalCost: number; activityCount: number }, b: typeof a) =>
-      treemapMetric === "fte" ? b.totalFTE - a.totalFTE :
-      treemapMetric === "cost" ? b.totalCost - a.totalCost :
-      b.activityCount - a.activityCount;
+      Math.max(
+        0.01,
+        treemapMetric === "fte" ? fte : treemapMetric === "cost" ? cost : act,
+      );
+    const sortAsc = (
+      a: { totalFTE: number; totalCost: number; activityCount: number },
+      b: typeof a,
+    ) =>
+      treemapMetric === "fte"
+        ? b.totalFTE - a.totalFTE
+        : treemapMetric === "cost"
+          ? b.totalCost - a.totalCost
+          : b.activityCount - a.activityCount;
 
     let sourceNodes: typeof portfolio.tree = [];
     let otherNodes: typeof portfolio.tree = [];
 
     if (treemapDrill.level === "domain") {
-      const all = portfolio.tree.filter((n) => n.kind === "domain").sort(sortAsc);
+      const all = portfolio.tree
+        .filter((n) => n.kind === "domain")
+        .sort(sortAsc);
       sourceNodes = all.slice(0, 6);
       otherNodes = all.slice(6);
     } else if (treemapDrill.level === "category") {
       sourceNodes = portfolio.tree
-        .filter((n) => n.kind === "category" && n.domain === treemapDrill.domainLabel)
+        .filter(
+          (n) => n.kind === "category" && n.domain === treemapDrill.domainLabel,
+        )
         .sort(sortAsc);
     } else {
       sourceNodes = portfolio.tree
-        .filter((n) => n.kind === "process" && n.domain === treemapDrill.domainLabel && n.category === treemapDrill.categoryLabel)
+        .filter(
+          (n) =>
+            n.kind === "process" &&
+            n.domain === treemapDrill.domainLabel &&
+            n.category === treemapDrill.categoryLabel,
+        )
         .sort(sortAsc);
     }
 
     const items = sourceNodes.map((n) => ({
       name: n.label,
       size: getSize(n.totalFTE, n.totalCost, n.activityCount),
-      totalFTE: n.totalFTE, totalCost: n.totalCost, activityCount: n.activityCount,
-      categoryCount: n.categoryCount, processCount: n.processCount,
+      totalFTE: n.totalFTE,
+      totalCost: n.totalCost,
+      activityCount: n.activityCount,
+      categoryCount: n.categoryCount,
+      processCount: n.processCount,
       criticalActivityCount: n.criticalActivityCount,
       metricLabel: fmtMetric(n.totalFTE, n.totalCost, n.activityCount),
-      nodeId: n.id, isOther: false, drillLevel: treemapDrill.level,
+      nodeId: n.id,
+      isOther: false,
+      drillLevel: treemapDrill.level,
     }));
 
     return { items, otherNodes };
@@ -2834,133 +3061,140 @@ function WorkCapabilityTaxonomyManager({
 
   return (
     <section className={styles.workCapabilityTaxonomy}>
-      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyHeader}>
-        <div>
-          <p className={styles.workCapabilityKicker}>Process Taxonomy</p>
-          <h3>Work catalog editor</h3>
-          <p>
-            Manage domains, categories, processes, and activity records from the
-            catalog workspace.
-          </p>
+      {!readOnlyCatalog && (
+        <div className={styles.workCapabilityTaxonomyHeader}>
+          <div>
+            <p className={styles.workCapabilityKicker}>Process Taxonomy</p>
+            <h3>Work catalog editor</h3>
+            <p>
+              Manage domains, categories, processes, and activity records from
+              the catalog workspace.
+            </p>
+          </div>
+          <div className={styles.workCapabilityTaxonomyStats}>
+            <span>{activeActivities.length.toLocaleString()} active</span>
+            <span>{activityLibrary.length.toLocaleString()} total</span>
+          </div>
         </div>
-        <div className={styles.workCapabilityTaxonomyStats}>
-          <span>{activeActivities.length.toLocaleString()} active</span>
-          <span>{activityLibrary.length.toLocaleString()} total</span>
-        </div>
-      </div>}
+      )}
 
-      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyToolbar}>
-        <div className={styles.workCapabilityViewTabs}>
-          <button type="button" className={styles.workCapabilityImportBtn}>
-            Catalog View
-          </button>
-        </div>
-        {!readOnlyCatalog && (
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search activities"
-            aria-label="Search taxonomy"
-          />
-        )}
-        <details className={styles.workCapabilityFiltersDetail}>
-          <summary className={styles.workCapabilitySecondaryBtn} style={{ listStyle: "none", cursor: "pointer" }}>
-            Filters ▾
-          </summary>
-          <div className={styles.workCapabilityFiltersDropdown}>
-            <select
-              value={departmentFilter}
-              onChange={(event) => setDepartmentFilter(event.target.value)}
-            >
-              <option value="">Department</option>
-              {portfolio.filterOptions.departments.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <select
-              value={criticalityFilter}
-              onChange={(event) => setCriticalityFilter(event.target.value)}
-            >
-              <option value="">Criticality</option>
-              {portfolio.filterOptions.criticalities.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <select
-              value={natureFilter}
-              onChange={(event) => setNatureFilter(event.target.value)}
-            >
-              <option value="">Nature</option>
-              {portfolio.filterOptions.natures.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <select
-              value={skillRiskFilter}
-              onChange={(event) => setSkillRiskFilter(event.target.value)}
-            >
-              <option value="">Skill risk</option>
-              {portfolio.filterOptions.skillRisks.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <select
-              value={automationFilter}
-              onChange={(event) => setAutomationFilter(event.target.value)}
-            >
-              <option value="">Automation</option>
-              <option value="any">Has saving</option>
-              <option value="high">High potential</option>
-            </select>
-            <button
-              type="button"
-              className={
-                ownershipGapOnly
-                  ? styles.workCapabilityImportBtn
-                  : styles.workCapabilitySecondaryBtn
-              }
-              onClick={() => setOwnershipGapOnly((prev) => !prev)}
-            >
-              Ownership Gap
+      {!readOnlyCatalog && (
+        <div className={styles.workCapabilityTaxonomyToolbar}>
+          <div className={styles.workCapabilityViewTabs}>
+            <button type="button" className={styles.workCapabilityImportBtn}>
+              Catalog View
             </button>
           </div>
-        </details>
-        <button
-          type="button"
-          className={styles.workCapabilitySecondaryBtn}
-          onClick={resetFilters}
-        >
-          Reset Filters
-        </button>
-        <button
-          type="button"
-          className={
-            showInactive
-              ? styles.workCapabilityImportBtn
-              : styles.workCapabilitySecondaryBtn
-          }
-          onClick={() => setShowInactive((prev) => !prev)}
-        >
-          {showInactive ? "Showing Archived" : "Hide Archived"}
-        </button>
-        {!readOnlyCatalog && (
+          {!readOnlyCatalog && (
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search activities"
+              aria-label="Search taxonomy"
+            />
+          )}
+          <details className={styles.workCapabilityFiltersDetail}>
+            <summary
+              className={styles.workCapabilitySecondaryBtn}
+              style={{ listStyle: "none", cursor: "pointer" }}
+            >
+              Filters ▾
+            </summary>
+            <div className={styles.workCapabilityFiltersDropdown}>
+              <select
+                value={departmentFilter}
+                onChange={(event) => setDepartmentFilter(event.target.value)}
+              >
+                <option value="">Department</option>
+                {portfolio.filterOptions.departments.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={criticalityFilter}
+                onChange={(event) => setCriticalityFilter(event.target.value)}
+              >
+                <option value="">Criticality</option>
+                {portfolio.filterOptions.criticalities.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={natureFilter}
+                onChange={(event) => setNatureFilter(event.target.value)}
+              >
+                <option value="">Nature</option>
+                {portfolio.filterOptions.natures.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={skillRiskFilter}
+                onChange={(event) => setSkillRiskFilter(event.target.value)}
+              >
+                <option value="">Skill risk</option>
+                {portfolio.filterOptions.skillRisks.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={automationFilter}
+                onChange={(event) => setAutomationFilter(event.target.value)}
+              >
+                <option value="">Automation</option>
+                <option value="any">Has saving</option>
+                <option value="high">High potential</option>
+              </select>
+              <button
+                type="button"
+                className={
+                  ownershipGapOnly
+                    ? styles.workCapabilityImportBtn
+                    : styles.workCapabilitySecondaryBtn
+                }
+                onClick={() => setOwnershipGapOnly((prev) => !prev)}
+              >
+                Ownership Gap
+              </button>
+            </div>
+          </details>
           <button
             type="button"
-            className={styles.workCapabilityImportBtn}
-            onClick={() => setShowAddActivity(true)}
+            className={styles.workCapabilitySecondaryBtn}
+            onClick={resetFilters}
           >
-            Add Activity
+            Reset Filters
           </button>
-        )}
-      </div>}
+          <button
+            type="button"
+            className={
+              showInactive
+                ? styles.workCapabilityImportBtn
+                : styles.workCapabilitySecondaryBtn
+            }
+            onClick={() => setShowInactive((prev) => !prev)}
+          >
+            {showInactive ? "Showing Archived" : "Hide Archived"}
+          </button>
+          {!readOnlyCatalog && (
+            <button
+              type="button"
+              className={styles.workCapabilityImportBtn}
+              onClick={() => setShowAddActivity(true)}
+            >
+              Add Activity
+            </button>
+          )}
+        </div>
+      )}
 
       <>
         <div className={styles.workCapabilityKpiStrip}>
@@ -2994,103 +3228,11 @@ function WorkCapabilityTaxonomyManager({
           {portfolio.kpis.totalActivities.toLocaleString()} activities mapped to{" "}
           <strong>{portfolio.kpis.mappedFTE.toFixed(1)} FTE</strong> and{" "}
           <strong>{fmtCost(portfolio.kpis.mappedCost)}</strong> cost, with{" "}
-          <strong>{portfolio.kpis.ownershipGaps.toLocaleString()}</strong> ownership gap
-          {portfolio.kpis.ownershipGaps === 1 ? "" : "s"} requiring cleanup before
-          scenario planning.
+          <strong>{portfolio.kpis.ownershipGaps.toLocaleString()}</strong>{" "}
+          ownership gap
+          {portfolio.kpis.ownershipGaps === 1 ? "" : "s"} requiring cleanup
+          before scenario planning.
         </div>
-
-        <div className={styles.workCapabilityVisualRow}>
-          {/* Left: Work by Domain — larger card, top 8 + Other */}
-          <div className={styles.workCapabilityVisualCard}>
-            <strong>Work by Domain</strong>
-            {(() => {
-              const allDomains = portfolio.tree
-                .filter((n) => n.kind === "domain")
-                .sort((a, b) => b.totalCost - a.totalCost || b.totalFTE - a.totalFTE);
-              const top = allDomains.slice(0, 8);
-              const rest = allDomains.slice(8);
-              const otherCost = rest.reduce((s, n) => s + n.totalCost, 0);
-              const maxCost = Math.max(1, top[0]?.totalCost ?? 0, otherCost);
-              return (
-                <>
-                  {top.map((n) => (
-                    <div key={n.id} className={styles.workCapabilityVisualBar}>
-                      <span className={styles.workCapabilityVisualBarLabel}>{n.label}</span>
-                      <div className={styles.workCapabilityVisualBarTrack}>
-                        <div className={styles.workCapabilityVisualBarFill} style={{ width: `${Math.max(4, (n.totalCost / maxCost) * 100)}%` }} />
-                      </div>
-                      <span className={styles.workCapabilityVisualBarValue}>{fmtCost(n.totalCost)}</span>
-                    </div>
-                  ))}
-                  {rest.length > 0 && (
-                    <div className={styles.workCapabilityVisualBar}>
-                      <span className={styles.workCapabilityVisualBarLabel}>Other ({rest.length})</span>
-                      <div className={styles.workCapabilityVisualBarTrack}>
-                        <div className={styles.workCapabilityVisualBarFill} style={{ width: `${Math.max(4, (otherCost / maxCost) * 100)}%`, opacity: 0.45 }} />
-                      </div>
-                      <span className={styles.workCapabilityVisualBarValue}>{fmtCost(otherCost)}</span>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-
-          {/* Right: stacked Quality Mix + Automation Opportunity */}
-          <div className={styles.workCapabilityVisualRightStack}>
-            <div className={styles.workCapabilityVisualCard}>
-              <strong>Quality Mix</strong>
-              {(() => {
-                const total = Math.max(1, portfolio.kpis.totalActivities);
-                const critPct = (portfolio.kpis.criticalActivities / total) * 100;
-                const gapPct = (portfolio.kpis.ownershipGaps / total) * 100;
-                return (
-                  <div className={styles.workCapabilityQualityStats}>
-                    <div>
-                      <span className={styles.workCapabilityQualityNum} style={{ color: "#dc2626" }}>
-                        {portfolio.kpis.criticalActivities}
-                      </span>
-                      <span className={styles.workCapabilityQualityLabel}>
-                        critical <span>({critPct.toFixed(0)}%)</span>
-                      </span>
-                    </div>
-                    <div>
-                      <span className={styles.workCapabilityQualityNum} style={{ color: "#d97706" }}>
-                        {portfolio.kpis.ownershipGaps}
-                      </span>
-                      <span className={styles.workCapabilityQualityLabel}>
-                        ownership gaps <span>({gapPct.toFixed(0)}%)</span>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className={styles.workCapabilityVisualCard}>
-              <strong>Automation Opportunity</strong>
-              {(() => {
-                const cost = portfolio.kpis.mappedCost;
-                const saving = portfolio.kpis.automationSaving;
-                const pct = cost > 0 ? Math.min(100, (saving / cost) * 100) : 0;
-                return (
-                  <>
-                    <div className={styles.workCapabilityAutoSavingBig}>{fmtCost(saving)}</div>
-                    <div className={styles.workCapabilityAutoSavingSub}>
-                      {pct.toFixed(0)}% of {fmtCost(cost)} mapped cost
-                    </div>
-                    <div className={styles.workCapabilityVisualBarTrack}>
-                      <div className={styles.workCapabilityVisualBarFillAmber} style={{ width: `${Math.max(4, pct)}%` }} />
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Taxonomy concentration treemap */}
-        {combinedAnalysisChartsContent}
 
         <div className={styles.workCapabilityTreemapSection}>
           <div className={styles.workCapabilityTreemapHeader}>
@@ -3133,13 +3275,20 @@ function WorkCapabilityTaxonomyManager({
               <button
                 type="button"
                 className={styles.workCapabilityTreemapBreadcrumbBtn}
-                onClick={() => { setTreemapDrill({ level: "domain" }); setSelectedTreeId("all"); }}
+                onClick={() => {
+                  setTreemapDrill({ level: "domain" });
+                  setSelectedTreeId("all");
+                }}
               >
                 All Domains
               </button>
-              <span className={styles.workCapabilityTreemapBreadcrumbSep}>›</span>
+              <span className={styles.workCapabilityTreemapBreadcrumbSep}>
+                ›
+              </span>
               {treemapDrill.level === "category" && (
-                <span className={styles.workCapabilityTreemapBreadcrumbCurrent}>{treemapDrill.domainLabel}</span>
+                <span className={styles.workCapabilityTreemapBreadcrumbCurrent}>
+                  {treemapDrill.domainLabel}
+                </span>
               )}
               {treemapDrill.level === "process" && (
                 <>
@@ -3147,14 +3296,24 @@ function WorkCapabilityTaxonomyManager({
                     type="button"
                     className={styles.workCapabilityTreemapBreadcrumbBtn}
                     onClick={() => {
-                      setTreemapDrill({ level: "category", domainId: treemapDrill.domainId, domainLabel: treemapDrill.domainLabel });
+                      setTreemapDrill({
+                        level: "category",
+                        domainId: treemapDrill.domainId,
+                        domainLabel: treemapDrill.domainLabel,
+                      });
                       setSelectedTreeId(treemapDrill.domainId);
                     }}
                   >
                     {treemapDrill.domainLabel}
                   </button>
-                  <span className={styles.workCapabilityTreemapBreadcrumbSep}>›</span>
-                  <span className={styles.workCapabilityTreemapBreadcrumbCurrent}>{treemapDrill.categoryLabel}</span>
+                  <span className={styles.workCapabilityTreemapBreadcrumbSep}>
+                    ›
+                  </span>
+                  <span
+                    className={styles.workCapabilityTreemapBreadcrumbCurrent}
+                  >
+                    {treemapDrill.categoryLabel}
+                  </span>
                 </>
               )}
             </div>
@@ -3175,7 +3334,11 @@ function WorkCapabilityTaxonomyManager({
                 const nodeId = data.nodeId as string;
                 const nodeName = data.name as string;
                 if (treemapDrill.level === "domain") {
-                  setTreemapDrill({ level: "category", domainId: nodeId, domainLabel: nodeName });
+                  setTreemapDrill({
+                    level: "category",
+                    domainId: nodeId,
+                    domainLabel: nodeName,
+                  });
                   setSelectedTreeId(nodeId);
                 } else if (treemapDrill.level === "category") {
                   setTreemapDrill({
@@ -3187,32 +3350,39 @@ function WorkCapabilityTaxonomyManager({
                   });
                   setSelectedTreeId(nodeId);
                 } else {
-                  setSelectedTreeId(selectedTreeId === nodeId ? treemapDrill.domainId : nodeId);
+                  setSelectedTreeId(
+                    selectedTreeId === nodeId ? treemapDrill.domainId : nodeId,
+                  );
                 }
               }}
             />
           </ResponsiveContainer>
 
-          {treemapDrill.level === "domain" && treemapData.otherNodes.length > 0 && (
-            <div className={styles.workCapabilityTreemapOtherList}>
-              <span className={styles.workCapabilityTreemapOtherLabel}>
-                {treemapData.otherNodes.length} more:
-              </span>
-              {treemapData.otherNodes.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  className={styles.workCapabilityTreemapOtherItem}
-                  onClick={() => {
-                    setTreemapDrill({ level: "category", domainId: n.id, domainLabel: n.label });
-                    setSelectedTreeId(n.id);
-                  }}
-                >
-                  {n.label}
-                </button>
-              ))}
-            </div>
-          )}
+          {treemapDrill.level === "domain" &&
+            treemapData.otherNodes.length > 0 && (
+              <div className={styles.workCapabilityTreemapOtherList}>
+                <span className={styles.workCapabilityTreemapOtherLabel}>
+                  {treemapData.otherNodes.length} more:
+                </span>
+                {treemapData.otherNodes.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={styles.workCapabilityTreemapOtherItem}
+                    onClick={() => {
+                      setTreemapDrill({
+                        level: "category",
+                        domainId: n.id,
+                        domainLabel: n.label,
+                      });
+                      setSelectedTreeId(n.id);
+                    }}
+                  >
+                    {n.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
           {selectedTreeId !== "all" &&
             portfolio.tree.find((n) => n.id === selectedTreeId) != null && (
@@ -3222,21 +3392,77 @@ function WorkCapabilityTaxonomyManager({
                   {portfolio.tree.find((n) => n.id === selectedTreeId)!.label}
                 </strong>{" "}
                 —{" "}
-                <button
-                  type="button"
-                  onClick={() => setSelectedTreeId("all")}
-                >
+                <button type="button" onClick={() => setSelectedTreeId("all")}>
                   clear filter
                 </button>
               </div>
             )}
         </div>
-
-        {combinedAnalysisPortfolioContent}
-
-        <div
-          className={styles.workCapabilityCatalogWorkspace}
-        >
+        <div className={styles.workCapabilityCatalogWorkspace}>
+          {onAddToStory && (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                display: "flex",
+                justifyContent: "flex-end",
+                paddingBottom: 8,
+                borderBottom: "1px solid rgba(0,0,0,0.07)",
+                marginBottom: 8,
+              }}
+            >
+              <button
+                onClick={() => {
+                  const now = new Date().toISOString();
+                  onAddToStory({
+                    rows: filteredActivities.map((a) => ({
+                      Activity: a.activityName,
+                      Domain: a.domain,
+                      Category: a.category,
+                      Process: a.processArea,
+                      Nature: a.nature,
+                      Criticality: a.criticality,
+                      Cost: a.totalCost,
+                      FTE: a.totalFTE,
+                      People: a.assignedPeople,
+                      Accountable: a.accountableCount,
+                      "Auto Saving %": a.automationCostReductionPct,
+                    })),
+                    columns: [
+                      "Activity",
+                      "Domain",
+                      "Category",
+                      "Process",
+                      "Nature",
+                      "Criticality",
+                      "Cost",
+                      "FTE",
+                      "People",
+                      "Accountable",
+                      "Auto Saving %",
+                    ],
+                    source: {
+                      type: "org-metrics",
+                      label: "Work Capability Catalog",
+                      capturedAt: now,
+                    },
+                    label: "Work Capability Catalog",
+                  });
+                }}
+                style={{
+                  background: "none",
+                  border: "1px solid rgba(0,107,107,0.35)",
+                  borderRadius: 3,
+                  padding: "3px 10px",
+                  fontSize: 11,
+                  color: "var(--teal, #006b6b)",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                }}
+              >
+                + Story
+              </button>
+            </div>
+          )}
           <aside className={styles.workCapabilityCatalogTree}>
             <button
               type="button"
@@ -3337,8 +3563,14 @@ function WorkCapabilityTaxonomyManager({
           <div className={styles.workCapabilityActivityTableWrap}>
             {reviewHighlightIds && (
               <div className={styles.workCapabilityReviewBanner}>
-                <span>Showing {reviewHighlightIds.length} flagged activities from catalog suggestion</span>
-                <button type="button" onClick={() => setReviewHighlightIds(null)}>
+                <span>
+                  Showing {reviewHighlightIds.length} flagged activities from
+                  catalog suggestion
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setReviewHighlightIds(null)}
+                >
                   Clear
                 </button>
               </div>
@@ -3524,6 +3756,134 @@ function WorkCapabilityTaxonomyManager({
             )}
           </aside>
         </div>
+        <div className={styles.workCapabilityVisualRow}>
+          {/* Left: Work by Domain — larger card, top 8 + Other */}
+          <div className={styles.workCapabilityVisualCard}>
+            <strong>Work by Domain</strong>
+            {(() => {
+              const allDomains = portfolio.tree
+                .filter((n) => n.kind === "domain")
+                .sort(
+                  (a, b) =>
+                    b.totalCost - a.totalCost || b.totalFTE - a.totalFTE,
+                );
+              const top = allDomains.slice(0, 8);
+              const rest = allDomains.slice(8);
+              const otherCost = rest.reduce((s, n) => s + n.totalCost, 0);
+              const maxCost = Math.max(1, top[0]?.totalCost ?? 0, otherCost);
+              return (
+                <>
+                  {top.map((n) => (
+                    <div key={n.id} className={styles.workCapabilityVisualBar}>
+                      <span className={styles.workCapabilityVisualBarLabel}>
+                        {n.label}
+                      </span>
+                      <div className={styles.workCapabilityVisualBarTrack}>
+                        <div
+                          className={styles.workCapabilityVisualBarFill}
+                          style={{
+                            width: `${Math.max(4, (n.totalCost / maxCost) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <span className={styles.workCapabilityVisualBarValue}>
+                        {fmtCost(n.totalCost)}
+                      </span>
+                    </div>
+                  ))}
+                  {rest.length > 0 && (
+                    <div className={styles.workCapabilityVisualBar}>
+                      <span className={styles.workCapabilityVisualBarLabel}>
+                        Other ({rest.length})
+                      </span>
+                      <div className={styles.workCapabilityVisualBarTrack}>
+                        <div
+                          className={styles.workCapabilityVisualBarFill}
+                          style={{
+                            width: `${Math.max(4, (otherCost / maxCost) * 100)}%`,
+                            opacity: 0.45,
+                          }}
+                        />
+                      </div>
+                      <span className={styles.workCapabilityVisualBarValue}>
+                        {fmtCost(otherCost)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Right: stacked Quality Mix + Automation Opportunity */}
+          <div className={styles.workCapabilityVisualRightStack}>
+            <div className={styles.workCapabilityVisualCard}>
+              <strong>Quality Mix</strong>
+              {(() => {
+                const total = Math.max(1, portfolio.kpis.totalActivities);
+                const critPct =
+                  (portfolio.kpis.criticalActivities / total) * 100;
+                const gapPct = (portfolio.kpis.ownershipGaps / total) * 100;
+                return (
+                  <div className={styles.workCapabilityQualityStats}>
+                    <div>
+                      <span
+                        className={styles.workCapabilityQualityNum}
+                        style={{ color: "#dc2626" }}
+                      >
+                        {portfolio.kpis.criticalActivities}
+                      </span>
+                      <span className={styles.workCapabilityQualityLabel}>
+                        critical <span>({critPct.toFixed(0)}%)</span>
+                      </span>
+                    </div>
+                    <div>
+                      <span
+                        className={styles.workCapabilityQualityNum}
+                        style={{ color: "#d97706" }}
+                      >
+                        {portfolio.kpis.ownershipGaps}
+                      </span>
+                      <span className={styles.workCapabilityQualityLabel}>
+                        ownership gaps <span>({gapPct.toFixed(0)}%)</span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className={styles.workCapabilityVisualCard}>
+              <strong>Automation Opportunity</strong>
+              {(() => {
+                const cost = portfolio.kpis.mappedCost;
+                const saving = portfolio.kpis.automationSaving;
+                const pct = cost > 0 ? Math.min(100, (saving / cost) * 100) : 0;
+                return (
+                  <>
+                    <div className={styles.workCapabilityAutoSavingBig}>
+                      {fmtCost(saving)}
+                    </div>
+                    <div className={styles.workCapabilityAutoSavingSub}>
+                      {pct.toFixed(0)}% of {fmtCost(cost)} mapped cost
+                    </div>
+                    <div className={styles.workCapabilityVisualBarTrack}>
+                      <div
+                        className={styles.workCapabilityVisualBarFillAmber}
+                        style={{ width: `${Math.max(4, pct)}%` }}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+
+        {/* Taxonomy concentration treemap */}
+        {combinedAnalysisChartsContent}
+
+        {combinedAnalysisPortfolioContent}
 
         <WorkCapabilityTaxonomyCleanupPanel
           suggestions={cleanupSuggestions}
@@ -3629,19 +3989,21 @@ function WorkCapabilityTaxonomyManager({
         />
       )}
 
-      {!readOnlyCatalog && <div className={styles.workCapabilityTaxonomyFooter}>
-        <div className={styles.workCapabilityChangeLog}>
-          <strong>Taxonomy Change Log</strong>
-          {(dataset.taxonomyChangeLog ?? []).slice(-5).map((change) => (
-            <span key={change.id}>
-              {change.action}: {change.target} ({impactText(change.affected)})
-            </span>
-          ))}
-          {(dataset.taxonomyChangeLog ?? []).length === 0 && (
-            <span>No taxonomy edits this session.</span>
-          )}
+      {!readOnlyCatalog && (
+        <div className={styles.workCapabilityTaxonomyFooter}>
+          <div className={styles.workCapabilityChangeLog}>
+            <strong>Taxonomy Change Log</strong>
+            {(dataset.taxonomyChangeLog ?? []).slice(-5).map((change) => (
+              <span key={change.id}>
+                {change.action}: {change.target} ({impactText(change.affected)})
+              </span>
+            ))}
+            {(dataset.taxonomyChangeLog ?? []).length === 0 && (
+              <span>No taxonomy edits this session.</span>
+            )}
+          </div>
         </div>
-      </div>}
+      )}
     </section>
   );
 }
@@ -4043,40 +4405,57 @@ function WorkCapabilityActivityDetailPanel({
         </table>
       </div>
 
-      {!readOnly && <div className={styles.workCapabilityDetailSection}>
-        <strong>Scenario Levers</strong>
-        <div className={styles.workCapabilityScenarioLevers}>
-          <button type="button">
-            Automate: {fmtCost(activity.automationSaving)}
-          </button>
-          <button type="button">
-            Outsource: {fmtCost(activity.outsourcingSaving)}
-          </button>
-          <button type="button">Consolidate</button>
-          <button type="button">Reassign Owner</button>
+      {!readOnly && (
+        <div className={styles.workCapabilityDetailSection}>
+          <strong>Scenario Levers</strong>
+          <div className={styles.workCapabilityScenarioLevers}>
+            <button type="button">
+              Automate: {fmtCost(activity.automationSaving)}
+            </button>
+            <button type="button">
+              Outsource: {fmtCost(activity.outsourcingSaving)}
+            </button>
+            <button type="button">Consolidate</button>
+            <button type="button">Reassign Owner</button>
+          </div>
         </div>
-      </div>}
+      )}
 
-      {!readOnly && <div className={styles.workCapabilityInspectorForm}>
-        <strong>Activity Actions</strong>
-        <span>
-          {skillRequirementCount.toLocaleString()} skill requirement
-          {skillRequirementCount === 1 ? "" : "s"} linked to this activity.
-        </span>
-        <button
-          type="button"
-          onClick={() => onMerge(selectedActivityIds.length >= 2 ? selectedActivityIds : [activity.activityId])}
-          disabled={selectedActivityIds.length < 2}
-          title={selectedActivityIds.length < 2 ? "Select 2 or more activities using checkboxes to merge" : undefined}
-        >
-          {selectedActivityIds.length >= 2
-            ? `Merge ${selectedActivityIds.length} selected`
-            : "Merge (select 2+ first)"}
-        </button>
-        <button type="button" onClick={() => onArchive([activity.activityId])}>
-          Archive Activity
-        </button>
-      </div>}
+      {!readOnly && (
+        <div className={styles.workCapabilityInspectorForm}>
+          <strong>Activity Actions</strong>
+          <span>
+            {skillRequirementCount.toLocaleString()} skill requirement
+            {skillRequirementCount === 1 ? "" : "s"} linked to this activity.
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              onMerge(
+                selectedActivityIds.length >= 2
+                  ? selectedActivityIds
+                  : [activity.activityId],
+              )
+            }
+            disabled={selectedActivityIds.length < 2}
+            title={
+              selectedActivityIds.length < 2
+                ? "Select 2 or more activities using checkboxes to merge"
+                : undefined
+            }
+          >
+            {selectedActivityIds.length >= 2
+              ? `Merge ${selectedActivityIds.length} selected`
+              : "Merge (select 2+ first)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onArchive([activity.activityId])}
+          >
+            Archive Activity
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -4328,14 +4707,15 @@ function WorkCapabilityTaxonomyCleanupPanel({
                   Archive
                 </button>
               )}
-              {!readOnlyCatalog && suggestion.actions.includes("Add Skills") && (
-                <button
-                  type="button"
-                  onClick={() => onReview(suggestion.activityIds)}
-                >
-                  Add Skills
-                </button>
-              )}
+              {!readOnlyCatalog &&
+                suggestion.actions.includes("Add Skills") && (
+                  <button
+                    type="button"
+                    onClick={() => onReview(suggestion.activityIds)}
+                  >
+                    Add Skills
+                  </button>
+                )}
             </div>
           </div>
         ))}
@@ -4901,6 +5281,7 @@ function WorkCapabilityIngestionPanel({
   onDatasetReady,
   combinedAnalysisChartsContent,
   combinedAnalysisPortfolioContent,
+  onAddToStory,
 }: {
   dataset: WorkCapabilityDataset | null;
   orgDataset: OrgDataset | null;
@@ -4909,6 +5290,7 @@ function WorkCapabilityIngestionPanel({
   onDatasetReady: (dataset: WorkCapabilityDataset) => void;
   combinedAnalysisChartsContent?: ReactNode;
   combinedAnalysisPortfolioContent?: ReactNode;
+  onAddToStory?: (data: PendingData) => void;
 }) {
   const [parsedFiles, setParsedFiles] = useState<ParsedWorkCapabilityFile[]>(
     [],
@@ -5101,6 +5483,7 @@ function WorkCapabilityIngestionPanel({
           readOnlyCatalog
           combinedAnalysisChartsContent={combinedAnalysisChartsContent}
           combinedAnalysisPortfolioContent={combinedAnalysisPortfolioContent}
+          onAddToStory={onAddToStory}
         />
       )}
 

@@ -2,6 +2,7 @@
 
 import type { DashboardData } from "@/lib/types";
 import type { PendingData } from "@/lib/story/types";
+import { downloadCsv } from "@/lib/utils";
 import styles from "./SummaryView.module.css";
 
 interface Props {
@@ -190,25 +191,38 @@ export default function SummaryView({ data, onAddToStory }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
             <h3 className={styles.panelTitle} style={{ margin: 0 }}>Span Distribution</h3>
             {onAddToStory && (
-              <button
-                onClick={() => {
-                  const now = new Date().toISOString();
-                  onAddToStory({
-                    rows: spanBuckets.map(b => ({ 'Direct Reports': b.label, Managers: b.count })),
-                    columns: ['Direct Reports', 'Managers'],
-                    source: { type: 'org-metrics', label: 'Span Distribution', capturedAt: now },
-                    label: 'Span Distribution',
-                  });
-                }}
-                style={{
-                  background: 'none', border: '1px solid rgba(0,107,107,0.35)',
-                  borderRadius: 3, padding: '3px 10px', fontSize: 11,
-                  color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                + Story
-              </button>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  onClick={() => {
+                    const now = new Date().toISOString();
+                    onAddToStory({
+                      rows: spanBuckets.map(b => ({ 'Direct Reports': b.label, Managers: b.count })),
+                      columns: ['Direct Reports', 'Managers'],
+                      source: { type: 'org-metrics', label: 'Span Distribution', capturedAt: now },
+                      label: 'Span Distribution',
+                    });
+                  }}
+                  style={{
+                    background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                    borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                    color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  + Story
+                </button>
+                <button
+                  onClick={() => downloadCsv(spanBuckets.map(b => ({ 'Direct Reports': b.label, Managers: b.count })), ['Direct Reports', 'Managers'], 'span-distribution.csv')}
+                  style={{
+                    background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                    borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                    color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ↓ CSV
+                </button>
+              </div>
             )}
           </div>
           <div className={styles.spanChart}>
@@ -324,30 +338,43 @@ export default function SummaryView({ data, onAddToStory }: Props) {
             Layer Composition — Open vs Filled Roles
           </h3>
           {onAddToStory && (
-            <button
-              onClick={() => {
-                const now = new Date().toISOString();
-                onAddToStory({
-                  rows: levelData.map(lc => ({
-                    Level: `L${lc.level}`,
-                    Total: lc.total,
-                    Filled: lc.filled,
-                    Open: lc.open,
-                  })),
-                  columns: ['Level', 'Total', 'Filled', 'Open'],
-                  source: { type: 'org-metrics', label: 'Layer Composition', capturedAt: now },
-                  label: 'Layer Composition — Open vs Filled Roles',
-                });
-              }}
-              style={{
-                background: 'none', border: '1px solid rgba(0,107,107,0.35)',
-                borderRadius: 3, padding: '3px 10px', fontSize: 11,
-                color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              + Story
-            </button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={() => {
+                  const now = new Date().toISOString();
+                  onAddToStory({
+                    rows: levelData.map(lc => ({
+                      Level: `L${lc.level}`,
+                      Total: lc.total,
+                      Filled: lc.filled,
+                      Open: lc.open,
+                    })),
+                    columns: ['Level', 'Total', 'Filled', 'Open'],
+                    source: { type: 'org-metrics', label: 'Layer Composition', capturedAt: now },
+                    label: 'Layer Composition — Open vs Filled Roles',
+                  });
+                }}
+                style={{
+                  background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                  borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                  color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                + Story
+              </button>
+              <button
+                onClick={() => downloadCsv(levelData.map(lc => ({ Level: `L${lc.level}`, Total: lc.total, Filled: lc.filled, Open: lc.open })), ['Level', 'Total', 'Filled', 'Open'], 'layer-composition.csv')}
+                style={{
+                  background: 'none', border: '1px solid rgba(0,107,107,0.35)',
+                  borderRadius: 3, padding: '3px 10px', fontSize: 11,
+                  color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                ↓ CSV
+              </button>
+            </div>
           )}
         </div>
         <div className={styles.layerTable}>

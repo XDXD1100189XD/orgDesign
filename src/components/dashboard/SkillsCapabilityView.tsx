@@ -21,6 +21,7 @@ interface SkillsCapabilityViewProps {
   layoutMode?: "full" | "talent-mapping";
   successionRiskContent?: React.ReactNode;
   successionPlanningContent?: React.ReactNode;
+  successionFlagsContent?: React.ReactNode;
 }
 
 type HeatmapView = "department-family" | "role-skill" | "employee-skill";
@@ -78,6 +79,7 @@ export default function SkillsCapabilityView({
   layoutMode = "full",
   successionRiskContent = null,
   successionPlanningContent = null,
+  successionFlagsContent = null,
 }: SkillsCapabilityViewProps) {
   const [mounted, setMounted] = useState(false);
   const [heatmapView, setHeatmapView] = useState<HeatmapView>("department-family");
@@ -153,13 +155,15 @@ export default function SkillsCapabilityView({
           />
         </div>
 
+        {successionPlanningContent}
+
         <GapHeatmapSection
           portfolio={portfolio}
           heatmapView={heatmapView}
           onHeatmapViewChange={setHeatmapView}
         />
 
-        {successionPlanningContent}
+        {successionFlagsContent}
       </div>
     );
   }
@@ -830,30 +834,38 @@ function ActivityRiskDrilldown({
 }: {
   activities: SkillsCapabilityActivityMetric[];
 }) {
+  const [nameFilter, setNameFilter] = useState("");
   const [critFilter, setCritFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
 
   const filtered = useMemo(() => {
-    return activities.filter((a) => {
-      if (critFilter && a.criticality !== critFilter) return false;
-      if (riskFilter && a.skillRisk !== riskFilter) return false;
-      return true;
-    });
-  }, [activities, critFilter, riskFilter]);
-
-  const top10 = filtered
-    .slice()
-    .sort((a, b) => b.costAtRisk - a.costAtRisk)
-    .slice(0, 10);
+    const query = nameFilter.trim().toLowerCase();
+    return activities
+      .filter((a) => {
+        if (query && !a.activityName.toLowerCase().includes(query)) return false;
+        if (critFilter && a.criticality !== critFilter) return false;
+        if (riskFilter && a.skillRisk !== riskFilter) return false;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => b.costAtRisk - a.costAtRisk);
+  }, [activities, nameFilter, critFilter, riskFilter]);
 
   return (
     <section id="activity-risk">
       <div className={styles.sectionHeading}>
         <h3>Activity-Skill Risk</h3>
-        <span>Top 10 activities by cost at risk. Coverage joins assigned people to skill requirements.</span>
+        <span>All activities by cost at risk. Coverage joins assigned people to skill requirements.</span>
       </div>
       <article className={styles.card}>
         <div className={styles.drilldownFilters}>
+          <input
+            className={styles.input}
+            type="search"
+            placeholder="Search activity name..."
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+          />
           <select
             className={styles.select}
             value={critFilter}
@@ -877,92 +889,50 @@ function ActivityRiskDrilldown({
           </select>
         </div>
         <div className={styles.tableScroll}>
-          <table className={styles.table} style={{ minWidth: 520 }}>
+          <table className={styles.table}>
             <thead>
               <tr>
                 <th>Activity</th>
                 <th>Criticality</th>
                 <th>People</th>
-                <th>Major Gaps</th>
-                <th>Cost at Risk</th>
+                <th>Required skills</th>
+                <th>Lowest coverage</th>
+                <th>Major gaps</th>
                 <th>Risk</th>
+                <th>Cost at risk</th>
+                <th>FTE at risk</th>
               </tr>
             </thead>
             <tbody>
-              {top10.map((activity) => (
+              {filtered.map((activity) => (
                 <tr key={activity.activityId}>
                   <td>{activity.activityName}</td>
                   <td>{activity.criticality || "—"}</td>
                   <td>{activity.assignedPeople}</td>
+                  <td>{activity.requiredSkills}</td>
+                  <td>
+                    {activity.skillRisk === "Unknown"
+                      ? "Unknown"
+                      : pct(activity.lowestSkillCoveragePct)}
+                  </td>
                   <td>{activity.majorSkillGaps}</td>
-                  <td>{money(activity.costAtRisk)}</td>
                   <td>
                     <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
                       {activity.skillRisk}
                     </span>
                   </td>
+                  <td>{money(activity.costAtRisk)}</td>
+                  <td>{activity.fteAtRisk.toFixed(1)}</td>
                 </tr>
               ))}
-              {top10.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6}>No activities match the current filters.</td>
+                  <td colSpan={9}>No activities match the current filters.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        <details className={styles.detailsBlock}>
-          <summary className={styles.summaryToggle}>
-            Full activity risk table ({filtered.length} activities)
-          </summary>
-          <div className={styles.detailsContent}>
-            <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Activity</th>
-                    <th>Criticality</th>
-                    <th>People</th>
-                    <th>Required skills</th>
-                    <th>Lowest coverage</th>
-                    <th>Major gaps</th>
-                    <th>Risk</th>
-                    <th>Cost at risk</th>
-                    <th>FTE at risk</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((activity) => (
-                    <tr key={activity.activityId}>
-                      <td>{activity.activityName}</td>
-                      <td>{activity.criticality || "—"}</td>
-                      <td>{activity.assignedPeople}</td>
-                      <td>{activity.requiredSkills}</td>
-                      <td>
-                        {activity.skillRisk === "Unknown"
-                          ? "Unknown"
-                          : pct(activity.lowestSkillCoveragePct)}
-                      </td>
-                      <td>{activity.majorSkillGaps}</td>
-                      <td>
-                        <span className={cx(styles.badge, riskClass(activity.skillRisk))}>
-                          {activity.skillRisk}
-                        </span>
-                      </td>
-                      <td>{money(activity.costAtRisk)}</td>
-                      <td>{activity.fteAtRisk.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={9}>No activities match the current filters.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </details>
       </article>
     </section>
   );
@@ -975,32 +945,31 @@ function SkillCoverageDrilldown({
   skills: SkillsCapabilitySkillMetric[];
   filterOptions: SkillsCapabilityPortfolio["filterOptions"];
 }) {
+  const [nameFilter, setNameFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
   const [critFilter, setCritFilter] = useState("");
-  const [spFilter, setSpFilter] = useState("");
-
-  const filtered = useMemo(() => {
-    return skills.filter((s) => {
-      if (familyFilter && s.skillFamily !== familyFilter) return false;
-      if (critFilter && s.criticality !== critFilter) return false;
-      if (spFilter && s.singlePointRisk !== spFilter) return false;
-      return true;
-    });
-  }, [skills, familyFilter, critFilter, spFilter]);
 
   const critOrder = (c: string) => (c === "High" ? 0 : c === "Medium" ? 1 : 2);
   const spOrder = (s: string) => (s === "High" ? 0 : s === "Medium" ? 1 : 2);
 
-  const sorted = filtered
-    .slice()
-    .sort((a, b) => {
-      if (critOrder(a.criticality) !== critOrder(b.criticality))
-        return critOrder(a.criticality) - critOrder(b.criticality);
-      if (spOrder(a.singlePointRisk) !== spOrder(b.singlePointRisk))
-        return spOrder(a.singlePointRisk) - spOrder(b.singlePointRisk);
-      return a.employeesAtLevel3Plus - b.employeesAtLevel3Plus;
-    })
-    .slice(0, 20);
+  const filtered = useMemo(() => {
+    const query = nameFilter.trim().toLowerCase();
+    return skills
+      .filter((s) => {
+        if (query && !s.skillName.toLowerCase().includes(query)) return false;
+        if (familyFilter && s.skillFamily !== familyFilter) return false;
+        if (critFilter && s.criticality !== critFilter) return false;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => {
+        if (critOrder(a.criticality) !== critOrder(b.criticality))
+          return critOrder(a.criticality) - critOrder(b.criticality);
+        if (spOrder(a.singlePointRisk) !== spOrder(b.singlePointRisk))
+          return spOrder(a.singlePointRisk) - spOrder(b.singlePointRisk);
+        return a.employeesAtLevel3Plus - b.employeesAtLevel3Plus;
+      });
+  }, [skills, nameFilter, familyFilter, critFilter]);
 
   return (
     <section id="skill-coverage">
@@ -1012,6 +981,13 @@ function SkillCoverageDrilldown({
       </div>
       <article className={styles.card}>
         <div className={styles.drilldownFilters}>
+          <input
+            className={styles.input}
+            type="search"
+            placeholder="Search skill name..."
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+          />
           <select
             className={styles.select}
             value={familyFilter}
@@ -1034,19 +1010,9 @@ function SkillCoverageDrilldown({
             <option value="Medium">Medium</option>
             <option value="Low">Low</option>
           </select>
-          <select
-            className={styles.select}
-            value={spFilter}
-            onChange={(e) => setSpFilter(e.target.value)}
-          >
-            <option value="">All single-point risk</option>
-            <option value="High">High (single-point)</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
         </div>
         <div className={styles.tableScroll}>
-          <table className={styles.table} style={{ minWidth: 580 }}>
+          <table className={styles.table}>
             <thead>
               <tr>
                 <th>Skill</th>
@@ -1054,19 +1020,25 @@ function SkillCoverageDrilldown({
                 <th>Criticality</th>
                 <th>Employees</th>
                 <th>Level 3+</th>
+                <th>Level 4+</th>
+                <th>Departments</th>
                 <th>Activities</th>
-                <th>Single-Point Risk</th>
+                <th>Roles</th>
+                <th>Single-point risk</th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((skill) => (
+              {filtered.map((skill) => (
                 <tr key={skill.skillId}>
                   <td>{skill.skillName}</td>
                   <td>{skill.skillFamily || "—"}</td>
                   <td>{skill.criticality || "—"}</td>
                   <td>{skill.employeesWithSkill}</td>
                   <td>{skill.employeesAtLevel3Plus}</td>
+                  <td>{skill.employeesAtLevel4Plus}</td>
+                  <td>{skill.departmentsCovered}</td>
                   <td>{skill.activitiesRequiringSkill}</td>
+                  <td>{skill.rolesRequiringSkill}</td>
                   <td>
                     <span className={cx(styles.badge, riskClass(skill.singlePointRisk))}>
                       {skill.singlePointRisk}
@@ -1074,70 +1046,14 @@ function SkillCoverageDrilldown({
                   </td>
                 </tr>
               ))}
-              {sorted.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7}>No skills match the current filters.</td>
+                  <td colSpan={10}>No skills match the current filters.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        {filtered.length > 20 && (
-          <div className={styles.tableNotice}>
-            Showing top {sorted.length} of {filtered.length} skills — expand the full table below
-            or refine filters.
-          </div>
-        )}
-        <details className={styles.detailsBlock}>
-          <summary className={styles.summaryToggle}>
-            Full skill coverage table ({filtered.length} skills)
-          </summary>
-          <div className={styles.detailsContent}>
-            <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Skill</th>
-                    <th>Family</th>
-                    <th>Criticality</th>
-                    <th>Employees</th>
-                    <th>Level 3+</th>
-                    <th>Level 4+</th>
-                    <th>Departments</th>
-                    <th>Activities</th>
-                    <th>Roles</th>
-                    <th>Single-point risk</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((skill) => (
-                    <tr key={skill.skillId}>
-                      <td>{skill.skillName}</td>
-                      <td>{skill.skillFamily || "—"}</td>
-                      <td>{skill.criticality || "—"}</td>
-                      <td>{skill.employeesWithSkill}</td>
-                      <td>{skill.employeesAtLevel3Plus}</td>
-                      <td>{skill.employeesAtLevel4Plus}</td>
-                      <td>{skill.departmentsCovered}</td>
-                      <td>{skill.activitiesRequiringSkill}</td>
-                      <td>{skill.rolesRequiringSkill}</td>
-                      <td>
-                        <span className={cx(styles.badge, riskClass(skill.singlePointRisk))}>
-                          {skill.singlePointRisk}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={10}>No skills match the current filters.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </details>
       </article>
     </section>
   );

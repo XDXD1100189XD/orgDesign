@@ -455,6 +455,17 @@
 }
 .chainArrow { color: var(--teal); font-weight: 700; font-size: 14px; flex-shrink: 0; }
 
+.nameLink {
+  cursor: pointer;
+  color: var(--teal);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.nameLink:hover {
+  text-decoration-style: solid;
+}
+
 /* ─────────────────────────────────────────────────────
    SUB-SECTION (function spread)
 ───────────────────────────────────────────────────── */

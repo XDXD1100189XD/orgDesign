@@ -12,6 +12,8 @@ import {
 } from "@/lib/workCapabilityDataset";
 import type { ColumnMapping } from "@/lib/fieldDictionary";
 import type { ExcelRow } from "@/lib/parseExcel";
+import type { PendingData } from "@/lib/story/types";
+import { downloadCsv } from "@/lib/utils";
 import styles from "@/app/page.module.css";
 
 type AnalysisProps = {
@@ -21,6 +23,7 @@ type AnalysisProps = {
   columnMapping: ColumnMapping | null;
   embeddedMode?: boolean;
   embeddedSection?: "all" | "category-charts" | "portfolio-workload";
+  onAddToStory?: (data: PendingData) => void;
 };
 
 const formatPct = (value: number) => `${value.toFixed(0)}%`;
@@ -89,6 +92,7 @@ export default function ActivityAnalysisView({
   columnMapping,
   embeddedMode = false,
   embeddedSection = "all",
+  onAddToStory,
 }: AnalysisProps) {
   const [expandedSections, setExpandedSections] = useState<Set<DrilldownId>>(new Set());
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
@@ -321,7 +325,15 @@ export default function ActivityAnalysisView({
         {/* Work concentration */}
         {showCategoryCharts && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <section className={styles.workCapabilityPanel}>
-            <strong>Cost by category</strong>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <strong>Cost by category</strong>
+              {onAddToStory && (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => onAddToStory({ rows: categoryCosts.map(r => ({ Category: r.category, Cost: r.cost, FTE: r.fte })), columns: ['Category', 'Cost', 'FTE'], source: { type: 'org-metrics', label: 'Cost by category', capturedAt: new Date().toISOString() }, label: 'Cost by category' })} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>+ Story</button>
+                  <button onClick={() => downloadCsv(categoryCosts.map(r => ({ Category: r.category, Cost: r.cost, FTE: r.fte })), ['Category', 'Cost', 'FTE'], 'cost-by-category.csv')} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>↓ CSV</button>
+                </div>
+              )}
+            </div>
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               {categoryCosts.slice(0, 8).map((item) => (
                 <div key={item.category} style={{ display: "grid", gridTemplateColumns: "1fr 72px", gap: 8, alignItems: "center" }}>
@@ -335,7 +347,15 @@ export default function ActivityAnalysisView({
             </div>
           </section>
           <section className={styles.workCapabilityPanel}>
-            <strong>FTE by category</strong>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <strong>FTE by category</strong>
+              {onAddToStory && (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => onAddToStory({ rows: categoryCosts.map(r => ({ Category: r.category, FTE: r.fte, Cost: r.cost })), columns: ['Category', 'FTE', 'Cost'], source: { type: 'org-metrics', label: 'FTE by category', capturedAt: new Date().toISOString() }, label: 'FTE by category' })} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>+ Story</button>
+                  <button onClick={() => downloadCsv(categoryCosts.map(r => ({ Category: r.category, FTE: r.fte, Cost: r.cost })), ['Category', 'FTE', 'Cost'], 'fte-by-category.csv')} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>↓ CSV</button>
+                </div>
+              )}
+            </div>
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               {categoryCosts.slice(0, 8).map((item) => (
                 <div key={item.category} style={{ display: "grid", gridTemplateColumns: "1fr 72px", gap: 8, alignItems: "center" }}>
@@ -448,7 +468,15 @@ export default function ActivityAnalysisView({
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <strong style={sectionLabel}>Activity Portfolio</strong>
-            <span style={{ fontSize: 11, color: "var(--slate)" }}>{filteredActivities.length} of {portfolio.activities.length}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "var(--slate)" }}>{filteredActivities.length} of {portfolio.activities.length}</span>
+              {onAddToStory && (
+                <>
+                  <button onClick={() => onAddToStory({ rows: filteredActivities.map(a => ({ Activity: a.activityName, Category: a.category, Process: a.processArea, Criticality: a.criticality, Cost: a.activityCost, FTE: a.activityFte, People: a.assignedPeople })), columns: ['Activity', 'Category', 'Process', 'Criticality', 'Cost', 'FTE', 'People'], source: { type: 'org-metrics', label: 'Activity Portfolio', capturedAt: new Date().toISOString() }, label: 'Activity Portfolio' })} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>+ Story</button>
+                  <button onClick={() => downloadCsv(filteredActivities.map(a => ({ Activity: a.activityName, Category: a.category, Process: a.processArea, Criticality: a.criticality, Cost: a.activityCost, FTE: a.activityFte, People: a.assignedPeople })), ['Activity', 'Category', 'Process', 'Criticality', 'Cost', 'FTE', 'People'], 'activity-portfolio.csv')} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>↓ CSV</button>
+                </>
+              )}
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -549,7 +577,15 @@ export default function ActivityAnalysisView({
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <strong style={sectionLabel}>People &amp; Workload</strong>
-            <span style={{ fontSize: 11, color: "var(--slate)" }}>{filteredEmployees.length} of {portfolio.employees.length}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "var(--slate)" }}>{filteredEmployees.length} of {portfolio.employees.length}</span>
+              {onAddToStory && (
+                <>
+                  <button onClick={() => onAddToStory({ rows: filteredEmployees.map(e => ({ Employee: e.employeeName, Role: e.role, Department: e.department, Status: e.workloadStatus, Activities: e.activityCount, FTE: e.mappedFTE })), columns: ['Employee', 'Role', 'Department', 'Status', 'Activities', 'FTE'], source: { type: 'org-metrics', label: 'People & Workload', capturedAt: new Date().toISOString() }, label: 'People & Workload' })} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>+ Story</button>
+                  <button onClick={() => downloadCsv(filteredEmployees.map(e => ({ Employee: e.employeeName, Role: e.role, Department: e.department, Status: e.workloadStatus, Activities: e.activityCount, FTE: e.mappedFTE })), ['Employee', 'Role', 'Department', 'Status', 'Activities', 'FTE'], 'people-workload.csv')} style={{ background: 'none', border: '1px solid rgba(0,107,107,0.35)', borderRadius: 3, padding: '3px 10px', fontSize: 11, color: 'var(--teal, #006b6b)', cursor: 'pointer', fontWeight: 500 }}>↓ CSV</button>
+                </>
+              )}
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
