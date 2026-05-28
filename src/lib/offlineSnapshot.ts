@@ -123,16 +123,20 @@ function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 async function compressBytes(input: Uint8Array): Promise<Uint8Array> {
   if (typeof CompressionStream === "undefined") return input;
   const cs = new CompressionStream("deflate-raw");
+  // Start read loop BEFORE writing — prevents backpressure deadlock on large inputs
+  const chunks: Uint8Array[] = [];
+  const reader = cs.readable.getReader();
+  const readPromise = (async () => {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  })();
   const writer = cs.writable.getWriter();
   await writer.write(toBufferSource(input));
   await writer.close();
-  const chunks: Uint8Array[] = [];
-  const reader = cs.readable.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
+  await readPromise;
   const total = chunks.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;
@@ -142,16 +146,19 @@ async function compressBytes(input: Uint8Array): Promise<Uint8Array> {
 
 async function decompressBytes(input: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream("deflate-raw");
+  const chunks: Uint8Array[] = [];
+  const reader = ds.readable.getReader();
+  const readPromise = (async () => {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  })();
   const writer = ds.writable.getWriter();
   await writer.write(toBufferSource(input));
   await writer.close();
-  const chunks: Uint8Array[] = [];
-  const reader = ds.readable.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
+  await readPromise;
   const total = chunks.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;
