@@ -150,17 +150,26 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed, o
 
       let resp: Response;
 
-      if (fileType === 'text') {
-        // Send text as JSON — no file involved
-        resp = await fetch(WEBHOOK_URL, {
+      if (fileType === 'image') {
+        // Extract org chart directly via Claude — no n8n
+        const arrayBuffer = await file!.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        const CHUNK = 0x8000;
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += CHUNK)
+          binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+        const imageBase64 = btoa(binary);
+        resp = await fetch('/api/ai/image-parse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: textInput.trim(),
-            file_type: 'text',
-            prompt: ANALYSIS_PROMPT,
-            timestamp: new Date().toISOString(),
-          }),
+          body: JSON.stringify({ imageBase64, mimeType: file!.type }),
+        });
+      } else if (fileType === 'text') {
+        // Extract org chart directly via Claude — no n8n
+        resp = await fetch('/api/ai/text-parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: textInput.trim() }),
         });
       } else {
         // Send file as multipart
@@ -204,7 +213,7 @@ export default function UploadModal({ onDataReady, onExcelFile, onExcelParsed, o
   };
 
   const stages: { key: Stage; label: string }[] = [
-    { key: 'upload', label: 'Uploading file to n8n…' },
+    { key: 'upload', label: fileType === 'image' ? 'Extracting org chart with AI…' : fileType === 'text' ? 'Extracting org chart from text…' : 'Uploading file to n8n…' },
     { key: 'parse', label: 'Analyzing & extracting hierarchy…' },
     { key: 'render', label: 'Rendering dashboard…' },
   ];

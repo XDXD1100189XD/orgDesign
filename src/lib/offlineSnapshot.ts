@@ -245,18 +245,21 @@ export function createSnapshotPayload(
   state: OfflineSnapshotInput,
   createdAt = new Date().toISOString(),
 ): OfflineSnapshotPayload {
+  // When dataset is present, the five extracted fields are fully redundant —
+  // syncLegacyFromDataset re-derives them on every restore. Skip them to avoid 2-3x size bloat.
+  const hasDataset = state.dataset != null;
   return {
     format: SNAPSHOT_FORMAT,
     version: SNAPSHOT_VERSION,
     createdAt,
     dataset: clone(state.dataset),
-    data: clone(state.data),
-    toBeData: clone(state.toBeData),
-    columnMapping: clone(state.columnMapping),
-    excelRows: clone(state.excelRows),
-    excelHeaders: clone(state.excelHeaders ?? []),
-    asIsMutatedRows: clone(state.asIsMutatedRows),
-    toBeMutatedRows: clone(state.toBeMutatedRows),
+    data:            hasDataset ? null : clone(state.data),
+    toBeData:        hasDataset ? null : clone(state.toBeData),
+    columnMapping:   clone(state.columnMapping),
+    excelRows:       hasDataset ? null : clone(state.excelRows),
+    excelHeaders:    clone(state.excelHeaders ?? []),
+    asIsMutatedRows: hasDataset ? null : clone(state.asIsMutatedRows),
+    toBeMutatedRows: hasDataset ? null : clone(state.toBeMutatedRows),
     changeLog: clone(state.changeLog ?? []),
     workCapabilityDataset: clone(state.workCapabilityDataset),
     successionCandidates: clone(state.successionCandidates ?? []),
