@@ -79,6 +79,7 @@ export interface EncryptedSnapshotEnvelope {
     iterations: number;
     salt: string;
     iv: string;
+    compression?: "deflate-raw";
   };
   ciphertext: string;
 }
@@ -117,6 +118,45 @@ function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   const view = new Uint8Array(copy);
   view.set(bytes);
   return view;
+}
+
+async function compressBytes(input: Uint8Array): Promise<Uint8Array> {
+  if (typeof CompressionStream === "undefined") return input;
+  const cs = new CompressionStream("deflate-raw");
+  const writer = cs.writable.getWriter();
+  await writer.write(toBufferSource(input));
+  await writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = cs.readable.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
+}
+
+async function decompressBytes(input: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  await writer.write(toBufferSource(input));
+  await writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = ds.readable.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
 }
 
 async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
@@ -228,9 +268,15 @@ export async function encryptSnapshot(
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const key = await deriveKey(passphrase, salt);
-  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(payload));
+  const compressed = await compressBytes(jsonBytes);
+  const didCompress = compressed !== jsonBytes;
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv: toBufferSource(iv) }, key, plaintext),
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: toBufferSource(iv) },
+      key,
+      toBufferSource(compressed),
+    ),
   );
   const envelope: EncryptedSnapshotEnvelope = {
     format: SNAPSHOT_FORMAT,
@@ -243,6 +289,7 @@ export async function encryptSnapshot(
       iterations: KDF_ITERATIONS,
       salt: bytesToBase64(salt),
       iv: bytesToBase64(iv),
+      ...(didCompress ? { compression: "deflate-raw" as const } : {}),
     },
     ciphertext: bytesToBase64(ciphertext),
   };
@@ -289,7 +336,12 @@ export async function decryptSnapshot(
   } catch {
     throw new Error("Could not decrypt snapshot. Check the file and passphrase.");
   }
-  return restoreSnapshotPayload(JSON.parse(new TextDecoder().decode(decrypted)));
+  const decryptedBytes = new Uint8Array(decrypted);
+  const plaintext =
+    encryption.compression === "deflate-raw"
+      ? await decompressBytes(decryptedBytes)
+      : decryptedBytes;
+  return restoreSnapshotPayload(JSON.parse(new TextDecoder().decode(plaintext)));
 }
 
 export function restoreSnapshotPayload(raw: unknown): OfflineSnapshotPayload {
